@@ -46,10 +46,35 @@ export default function SettingsPage() {
         {checking && <Spinner label="Опрашиваю линии…" />}
         {sources && <SourceStatus sources={sources} />}
         {sources && sources.every((s) => !s.ok) && (
-          <div className="rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs text-slate-300">
-            Ни одна контора не ответила. Так бывает, когда приложение запущено на зарубежном
-            сервере или в песочнице без доступа в интернет. Запустите его локально:{" "}
-            <code className="text-accent">npm install && npm run dev</code> — и линии подтянутся.
+          <div className="space-y-2 rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs text-slate-300">
+            <p>
+              Ни одна контора не ответила. Точная причина — в ошибках выше. Чаще всего это одно из
+              следующего:
+            </p>
+            <ul className="list-inside list-disc space-y-1 text-slate-400">
+              <li>
+                <b className="text-slate-200">Сертификат не принят</b> — антивирус (Касперский,
+                Dr.Web, ESET) проверяет защищённые соединения и подменяет сертификат. Выключите
+                проверку HTTPS в антивирусе.
+              </li>
+              <li>
+                <b className="text-slate-200">DNS: адрес не найден</b> — интернет есть, но адреса
+                контор не резолвятся. Проверьте, что VPN выключен, и смените DNS на 8.8.8.8.
+              </li>
+              <li>
+                <b className="text-slate-200">Соединение сброшено / таймаут</b> — провайдер или
+                корпоративный прокси режет эти адреса.
+              </li>
+              <li>
+                <b className="text-slate-200">HTTP 403 / ответ не JSON</b> — контора включила защиту
+                от ботов: нужны другие адреса, это поправимо.
+              </li>
+            </ul>
+            <p>
+              Полный разбор — двойным щелчком по файлу{" "}
+              <code className="text-accent">Диагностика.bat</code>: он проверит DNS, TLS и ответы
+              каждого адреса и сохранит отчёт <code className="text-accent">diag-report.txt</code>.
+            </p>
           </div>
         )}
       </section>

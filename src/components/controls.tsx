@@ -104,27 +104,47 @@ export function SportToggle({
 export function SourceStatus({
   sources,
 }: {
-  sources?: { book: string; key: string; ok: boolean; count?: number; error?: string; ms?: number }[];
+  sources?: {
+    book: string;
+    key: string;
+    ok: boolean;
+    count?: number;
+    error?: string;
+    ms?: number;
+    endpoint?: string;
+    rawCount?: number;
+  }[];
 }) {
   if (!sources?.length) return null;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid gap-2">
       {sources.map((s) => (
-        <span
+        <div
           key={s.key}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-            s.ok ? "border-good/40 bg-good/5 text-good" : "border-bad/40 bg-bad/5 text-bad"
+          className={`rounded-lg border p-3 text-xs ${
+            s.ok ? "border-good/40 bg-good/5" : "border-bad/40 bg-bad/5"
           }`}
-          title={s.error || `${s.count ?? 0} событий, ${s.ms ?? 0} мс`}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${s.ok ? "bg-good" : "bg-bad"}`} />
-          {s.book}
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${s.ok ? "bg-good" : "bg-bad"}`} />
+            <span className="font-medium text-slate-100">{s.book}</span>
+            <span className="text-slate-500">{s.ms ?? 0} мс</span>
+            <span className={s.ok ? "text-good" : "text-bad"}>
+              {s.ok ? `событий: ${s.count ?? 0}` : "нет данных"}
+            </span>
+          </div>
           {s.ok ? (
-            <span className="text-slate-500">{s.count ?? 0}</span>
+            <p className="mt-1 break-all text-slate-500">
+              {s.endpoint ? `адрес: ${s.endpoint}` : ""}
+              {s.rawCount ? ` (строк в ответе: ${s.rawCount})` : ""}
+            </p>
           ) : (
-            <span className="max-w-[160px] truncate text-slate-500">{s.error}</span>
+            <>
+              <p className="mt-1 whitespace-normal break-words text-bad">{s.error || "ошибка без описания"}</p>
+              {s.endpoint && <p className="mt-1 break-all text-slate-500">адрес: {s.endpoint}</p>}
+            </>
           )}
-        </span>
+        </div>
       ))}
     </div>
   );
