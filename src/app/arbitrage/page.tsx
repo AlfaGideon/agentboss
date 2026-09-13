@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { usePrefs, qs } from "@/lib/prefs";
+import { usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { BookToggle, SportToggle, SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, Stat, fmtTime, money, pct, timeUntil } from "@/components/ui";
 import { arbStakes } from "@/lib/math";
@@ -42,6 +42,7 @@ export default function ArbitragePage() {
           sports: prefs.sports.join(","),
           books: prefs.books.join(","),
           minProfit: prefs.minArbProfit,
+          dns: dnsParam(prefs),
         })}`
       );
       const d = await r.json();

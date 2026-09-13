@@ -1,5 +1,5 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
-import { getJson, roundLine } from "./http";
+import { getJsonFirst, roundLine } from "./http";
 
 /**
  * Лига Ставок. Публичное API витрины (api.ligastavok.ru / ligastavok.ru/api).
@@ -42,6 +42,7 @@ type LsEvent = {
 const endpoints = (sportId: number) => [
   `https://api.ligastavok.ru/api/v1/line/events?sportIds=${sportId}&limit=200`,
   `https://ligastavok.ru/api/v1/line/events?sportIds=${sportId}&limit=200`,
+  `https://www.ligastavok.ru/api/v1/line/events?sportIds=${sportId}&limit=200`,
   `https://api.ligastavok.ru/v1/line/sport/${sportId}/events`,
 ];
 
@@ -120,19 +121,13 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
   const sportId = SPORT_IDS[sport];
   if (!sportId) return { events: [], endpoint: "", rawCount: 0 };
 
-  let raw: any = null;
-  let endpoint = "";
-  let lastErr: unknown = null;
-  for (const url of endpoints(sportId)) {
-    try {
-      raw = await getJson<any>(url, signal);
-      endpoint = url;
-      if (raw) break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (!raw) throw lastErr instanceof Error ? lastErr : new Error("Линия Лиги Ставок недоступна");
+  const loaded = await getJsonFirst<any>(endpoints(sportId), signal, {
+    cacheKey: "ligastavok",
+    isValid: (d) => Boolean(d),
+  });
+  const raw = loaded.data;
+  const endpoint = loaded.url;
+  if (!raw) throw new Error("Линия Лиги Ставок ответила пусто");
 
   const list: LsEvent[] = Array.isArray(raw)
     ? raw
@@ -167,7 +162,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
       markets,
     });
   }
-  return { events: out, endpoint, rawCount: list.length };
+  return { events: out, endpoint, rawCount: list.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
 }
 
 export const ligastavok: BookAdapter = {

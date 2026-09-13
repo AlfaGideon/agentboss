@@ -1,5 +1,5 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
-import { getJson, roundLine } from "./http";
+import { getJsonFirst, roundLine } from "./http";
 
 /**
  * Олимп (olimp.bet / olimpbet.kz). Публичное API линии.
@@ -17,9 +17,10 @@ const SPORT_NAMES: Record<SportKey, RegExp> = {
 };
 
 const ENDPOINTS = [
-  "https://api.olimp.bet/api/v3/line/sports",
   "https://olimp.bet/api/v3/line/sports",
-  "https://api.olimp.bet/api/v1/line",
+  "https://www.olimp.bet/api/v3/line/sports",
+  "https://olimp.bet/api/v1/line/sports",
+  "https://olimp.bet/api/v1/line",
 ];
 
 type AnyRec = Record<string, any>;
@@ -105,19 +106,13 @@ function parseMarkets(e: AnyRec) {
 }
 
 async function fetchLine(sport: SportKey, signal: AbortSignal) {
-  let raw: any = null;
-  let endpoint = "";
-  let lastErr: unknown = null;
-  for (const url of ENDPOINTS) {
-    try {
-      raw = await getJson<any>(url, signal);
-      endpoint = url;
-      if (raw) break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (!raw) throw lastErr instanceof Error ? lastErr : new Error("Линия Олимпа недоступна");
+  const loaded = await getJsonFirst<any>(ENDPOINTS, signal, {
+    cacheKey: "olimp",
+    isValid: (d) => Boolean(d),
+  });
+  const raw = loaded.data;
+  const endpoint = loaded.url;
+  if (!raw) throw new Error("Линия Олимпа ответила пусто");
 
   const all = collectEvents(raw);
   const re = SPORT_NAMES[sport];
@@ -151,7 +146,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
       markets,
     });
   }
-  return { events: out, endpoint, rawCount: all.length };
+  return { events: out, endpoint, rawCount: all.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
 }
 
 export const olimp: BookAdapter = {

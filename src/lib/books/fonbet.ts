@@ -1,5 +1,5 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
-import { getJson, isoFrom, roundLine } from "./http";
+import { getJsonFirst, isoFrom, roundLine } from "./http";
 
 /**
  * Фонбет. Публичный фид линии (используется сайтом fon.bet).
@@ -10,7 +10,8 @@ const MIRRORS = [
   "https://line-static01.bkfon-resources.com/line/currentLine/ru/0.json.gz",
   "https://line11.bkfon-resources.com/line/currentLine/ru/0.json",
   "https://line-static01.bkfon-resources.com/line/currentLine/ru/0.json",
-  "https://clientsapi21.bk6bba-resources.com/results/results.json.php",
+  "https://line01i.bkfon-resources.com/line/currentLine/ru/0.json.gz",
+  "https://line02i.bkfon-resources.com/line/currentLine/ru/0.json.gz",
 ];
 
 type FonSport = { id: number; kind?: string; name: string; parentId?: number; sortOrder?: number };
@@ -75,21 +76,14 @@ const HCAP1 = new Set([1913, 924]);
 const HCAP2 = new Set([1914, 925]);
 
 async function fetchLine(sport: SportKey, signal: AbortSignal) {
-  let data: FonLine | null = null;
-  let endpoint = "";
-  let lastErr: unknown = null;
-  for (const url of MIRRORS) {
-    try {
-      data = await getJson<FonLine>(url, signal);
-      endpoint = url;
-      if (data?.events?.length) break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (!data?.events?.length) {
-    throw lastErr instanceof Error ? lastErr : new Error("Фид Фонбета недоступен");
-  }
+  // зеркала проверяются параллельно, остальные запросы отменяются
+  const loaded = await getJsonFirst<FonLine>(MIRRORS, signal, {
+    cacheKey: "fonbet",
+    isValid: (d) => Boolean(d?.events?.length),
+  });
+  const data = loaded.data;
+  const endpoint = loaded.url;
+  if (!data?.events?.length) throw new Error("Фид Фонбета ответил без событий");
 
   const sports = data.sports || [];
   const byId = new Map(sports.map((s) => [s.id, s]));
@@ -179,7 +173,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
     });
   }
 
-  return { events: out, endpoint, rawCount: events.length };
+  return { events: out, endpoint, rawCount: events.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
 }
 
 export const fonbet: BookAdapter = {

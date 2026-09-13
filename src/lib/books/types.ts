@@ -59,6 +59,17 @@ export type BookEvent = {
   markets: EventMarkets;
 };
 
+/** Что вышло при обращении к одному адресу-зеркалу конторы */
+export type BookFetchAttempt = {
+  url: string;
+  ok: boolean;
+  error?: string;
+  /** как определился адрес: системный DNS, DNS 8.8.8.8, Яндекс (DNS-over-HTTPS) */
+  dnsVia?: string;
+  /** сертификат подменили — соединение прошло без проверки */
+  insecure?: boolean;
+};
+
 /** Результат опроса одного букмекера */
 export type BookFetchResult = {
   bookKey: string;
@@ -70,6 +81,12 @@ export type BookFetchResult = {
   ms: number;
   /** Сколько событий пришло всего до фильтра по виду спорта */
   rawCount?: number;
+  /** Как был найден адрес конторы (системный DNS, резервный DNS, DNS-over-HTTPS) */
+  dnsVia?: string;
+  /** Соединение прошло без проверки сертификата (перехват HTTPS) */
+  insecure?: boolean;
+  /** Разбор по каждому адресу — виден в настройках */
+  tried?: BookFetchAttempt[];
 };
 
 export type BookAdapter = {
@@ -79,7 +96,17 @@ export type BookAdapter = {
   /** Поддерживаемые виды спорта */
   sports: SportKey[];
   /** Забрать линию по виду спорта */
-  fetchLine: (sport: SportKey, signal: AbortSignal) => Promise<{ events: BookEvent[]; endpoint: string; rawCount: number }>;
+  fetchLine: (
+    sport: SportKey,
+    signal: AbortSignal
+  ) => Promise<{
+    events: BookEvent[];
+    endpoint: string;
+    rawCount: number;
+    dnsVia?: string;
+    insecure?: boolean;
+    tried?: BookFetchAttempt[];
+  }>;
 };
 
 /** Объединённое по всем конторам событие */

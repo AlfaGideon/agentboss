@@ -1,127 +1,64 @@
-import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import https from "node:https";
+import {
+  REQUEST_TIMEOUT_MS,
+  UA,
+  browserHeaders,
+  describeNetError,
+  httpGet,
+  isIpAddress,
+} from "./net";
 
-export const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+export { REQUEST_TIMEOUT_MS, UA };
 
 export class BookError extends Error {}
 
-/** Сколько ждём ответа от одного адреса (мс) */
-export const REQUEST_TIMEOUT_MS = 8000;
-
-/**
- * Заголовки «как у браузера». Большинство витрин российских контор
- * отвечают 403 или капчей на голый запрос без Referer/Origin/Accept.
- */
-function browserHeaders(url: string, extra: Record<string, string> = {}) {
-  let origin = "";
-  try {
-    origin = new URL(url).origin;
-  } catch {}
-  return {
-    "User-Agent": UA,
-    Accept: "application/json, text/plain, */*",
-    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate",
-    "Cache-Control": "no-cache",
-    Pragma: "no-cache",
-    ...(origin ? { Origin: origin, Referer: `${origin}/` } : {}),
-    ...extra,
-  };
-}
-
-/** Распаковка тела: undici сам снимает gzip только если сервер прислал Content-Encoding */
-function decodeBody(buf: Buffer, enc: string): string {
-  try {
-    if (enc === "gzip") return gunzipSync(buf).toString("utf8");
-    if (enc === "deflate") return inflateSync(buf).toString("utf8");
-    if (enc === "br") return brotliDecompressSync(buf).toString("utf8");
-  } catch {}
-  // сервер мог отдать .gz файлом, без заголовка
-  if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-    try {
-      return gunzipSync(buf).toString("utf8");
-    } catch {}
-  }
-  return buf.toString("utf8");
-}
-
-async function peekBody(res: Response): Promise<string> {
-  try {
-    const buf = Buffer.from(await res.arrayBuffer());
-    const enc = (res.headers.get("content-encoding") || "").toLowerCase();
-    return decodeBody(buf, enc)
-      .replace(/\s+/g, " ")
-      .slice(0, 120);
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Обход перехвата HTTPS: антивирусы (Касперский, Dr.Web, ESET) и корпоративные
- * прокси подменяют сертификат своим, а Node доверяет только своему хранилищу.
- * Если сертификат не принят, повторяем запрос без проверки — данные всё равно
- * публичные котировки. Отключается переменной BOOKS_INSECURE_FALLBACK=0.
- */
-const INSECURE_ALLOWED = process.env.BOOKS_INSECURE_FALLBACK !== "0";
-let insecureWarned = false;
-
-const isCertError = (e: unknown) => {
-  const anyE = e as any;
-  const code = anyE?.cause?.code || anyE?.code || "";
-  const msg = String(anyE?.message || "");
-  return /CERT|VERIFY|SIGNATURE|SELF_SIGNED|DEPTH_ZERO|UNABLE_TO_VERIFY/i.test(`${code} ${msg}`);
+/** Итог попытки по одному адресу — показывается в «Настройках» для разбора */
+export type TriedEndpoint = {
+  url: string;
+  ok: boolean;
+  error?: string;
+  /** как нашли адрес: системный DNS, DNS 8.8.8.8, Яндекс (DNS-over-HTTPS) */
+  dnsVia?: string;
+  /** сертификат подменили, соединение прошло без проверки */
+  insecure?: boolean;
 };
 
-function httpsGetText(url: string, timeoutMs: number, headers: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const req = https.request(
-      {
-        host: u.hostname,
-        path: `${u.pathname}${u.search}`,
-        method: "GET",
-        port: 443,
-        rejectUnauthorized: false,
-        headers,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () =>
-          resolve(decodeBody(Buffer.concat(chunks), (res.headers["content-encoding"] || "").toLowerCase()))
-        );
-      }
-    );
-    req.setTimeout(timeoutMs, () => req.destroy(new Error("timeout")));
-    req.once("error", reject);
-    req.end();
-  });
-}
+export type Loaded<T> = {
+  data: T;
+  url: string;
+  dnsVia?: string;
+  insecure?: boolean;
+  tried: TriedEndpoint[];
+};
 
-/** Человекочитаемое описание сетевой ошибки */
-export function describeFetchError(e: unknown, timeoutMs = REQUEST_TIMEOUT_MS): string {
-  const anyE = e as any;
-  const name = anyE?.name || "";
-  if (name === "AbortError" || /abort/i.test(name)) return `Таймаут ${Math.round(timeoutMs / 1000)} с`;
-  const code = anyE?.cause?.code || anyE?.code || "";
-  const msg = String(anyE?.message || e || "Неизвестная ошибка");
-  if (/ENOTFOUND|EAI_AGAIN/.test(code + msg)) return `DNS: адрес не найден (${code || "ENOTFOUND"})`;
-  if (/ECONNREFUSED/.test(code + msg)) return "Соединение отклонено (порт закрыт)";
-  if (/ECONNRESET/.test(code + msg)) return "Соединение сброшено (похоже на блокировку)";
-  if (/ETIMEDOUT|ESOCKETTIMEDOUT|UND_ERR_CONNECT_TIMEOUT|timeout/i.test(code + msg))
-    return `Таймаут ${Math.round(timeoutMs / 1000)} с`;
-  if (/CERT|VERIFY|SIGNATURE|SELF_SIGNED|DEPTH_ZERO/i.test(code + msg))
-    return `Сертификат не принят (${code || msg}) — похоже, HTTPS перехватывает антивирус`;
-  return msg.slice(0, 160);
-}
+export type JsonOptions = {
+  timeoutMs?: number;
+  retries?: number;
+  /** запретить резервный DNS (нужен, например, чтобы проверить только системный) */
+  noDnsFallback?: boolean;
+};
 
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
+const short = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Убираем повтор имени хоста: в списке адрес и так указан целиком */
+const withoutHost = (url: string, msg: string) => msg.split(` — ${hostOf(url)}`).join("");
+
+/**
+ * Один JSON-запрос. Если DNS не находит адрес, имя разрешается через резервные
+ * серверы (UDP и DNS-over-HTTPS) — см. net.ts.
+ */
 export async function getJson<T>(
   url: string,
   signal: AbortSignal,
   headers: Record<string, string> = {},
-  opts: { timeoutMs?: number; retries?: number } = {}
+  opts: JsonOptions = {}
 ): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const retries = opts.retries ?? 1;
@@ -130,20 +67,16 @@ export async function getJson<T>(
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (signal?.aborted) throw new BookError("Запрос отменён");
 
-    const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    signal?.addEventListener?.("abort", onAbort, { once: true });
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-
     try {
-      const res = await fetch(url, {
-        signal: ctrl.signal,
+      const res = await httpGet(url, {
         headers: browserHeaders(url, headers),
-        cache: "no-store",
+        timeoutMs,
+        signal,
+        noDnsFallback: opts.noDnsFallback,
       });
 
-      if (!res.ok) {
-        const body = await peekBody(res);
+      if (res.status < 200 || res.status >= 300) {
+        const body = res.text.replace(/\s+/g, " ").slice(0, 120);
         const err = new BookError(`HTTP ${res.status}${body ? ` — ${body}` : ""}`);
         if (res.status >= 500 && attempt < retries) {
           lastErr = err;
@@ -152,50 +85,166 @@ export async function getJson<T>(
         throw err;
       }
 
-      const buf = Buffer.from(await res.arrayBuffer());
-      const enc = (res.headers.get("content-encoding") || "").toLowerCase();
-      const text = decodeBody(buf, enc);
-
       try {
-        return JSON.parse(text) as T;
+        return JSON.parse(res.text) as T;
       } catch {
-        const ct = res.headers.get("content-type") || "тип не указан";
-        throw new BookError(`Ответ не JSON (${ct}) — «${text.replace(/\s+/g, " ").slice(0, 80)}»`);
+        const ct = res.headers["content-type"] || "тип не указан";
+        throw new BookError(
+          `Ответ не JSON (${ct}) — «${res.text.replace(/\s+/g, " ").slice(0, 80)}»`
+        );
       }
     } catch (e) {
       lastErr = e;
       if (e instanceof BookError) throw e;
-
-      // сертификат не принят — пробуем без проверки (перехват антивирусом)
-      if (INSECURE_ALLOWED && isCertError(e)) {
-        try {
-          const text = await httpsGetText(url, timeoutMs, browserHeaders(url, headers));
-          if (!insecureWarned) {
-            insecureWarned = true;
-            console.warn(
-              "[books] ВНИМАНИЕ: сертификат конторы не прошёл проверку — соединение выполнено без проверки. " +
-                "Похоже, HTTPS перехватывает антивирус или прокси. Отключить обход: BOOKS_INSECURE_FALLBACK=0"
-            );
-          }
-          return JSON.parse(text) as T;
-        } catch {
-          /* ниже бросим обычную ошибку */
-        }
+      if ((e as any)?.code === "ABORTED" || /abort/i.test(String((e as any)?.name || ""))) {
+        throw new BookError(describeNetError(e, timeoutMs));
       }
-
-      const retryable = !/abort/i.test(String((e as any)?.name || ""));
-      if (retryable && attempt < retries) {
+      if (attempt < retries) {
         await new Promise((r) => setTimeout(r, 250));
         continue;
       }
-      throw new BookError(describeFetchError(e, timeoutMs));
+      throw new BookError(describeNetError(e, timeoutMs));
+    }
+  }
+
+  throw lastErr instanceof BookError
+    ? lastErr
+    : new BookError(describeNetError(lastErr, timeoutMs));
+}
+
+/** Кэш рабочего зеркала: не дёргаем «мёртвые» адреса на каждом обновлении */
+const winnerCache = new Map<string, { url: string; ts: number }>();
+const WINNER_TTL_MS = 10 * 60 * 1000;
+
+export function forgetEndpoint(key: string) {
+  winnerCache.delete(key);
+}
+
+/**
+ * Опрос нескольких адресов-зеркал одной конторы.
+ *
+ * Адреса проверяются параллельно, берётся первый, который ответил валидными
+ * данными; остальные запросы отменяются. Рабочий адрес запоминается на 10 минут,
+ * поэтому обычные обновления линии идут в один запрос, а не перебирают зеркала
+ * по очереди с таймаутами.
+ *
+ * Ошибка выдаётся одна на контору и перечисляет причины по каждому адресу —
+ * в интерфейсе видно, что именно случилось, а не «DNS: адрес не найден»
+ * от последнего адреса в списке.
+ */
+export async function getJsonFirst<T>(
+  urls: string[],
+  signal: AbortSignal,
+  opts: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    isValid?: (d: T) => boolean;
+    cacheKey?: string;
+    noDnsFallback?: boolean;
+  } = {}
+): Promise<Loaded<T>> {
+  const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const list = [...new Set(urls.filter(Boolean))];
+  if (!list.length) throw new BookError("Не задан ни один адрес источника");
+
+  const valid = (d: T) => {
+    if (d == null) return false;
+    if (opts.isValid) return opts.isValid(d);
+    if (Array.isArray(d)) return d.length > 0;
+    return true;
+  };
+
+  const tried: TriedEndpoint[] = [];
+
+  const attempt = async (url: string, ctrl: AbortController): Promise<Loaded<T>> => {
+    try {
+      const res = await httpGet(url, {
+        headers: browserHeaders(url, opts.headers),
+        timeoutMs,
+        signal: ctrl.signal,
+        noDnsFallback: opts.noDnsFallback,
+      });
+      if (res.status < 200 || res.status >= 300) {
+        const body = res.text.replace(/\s+/g, " ").slice(0, 100);
+        throw new Error(`HTTP ${res.status}${body ? ` — ${body}` : ""}`);
+      }
+      let data: T;
+      try {
+        data = JSON.parse(res.text) as T;
+      } catch {
+        const ct = res.headers["content-type"] || "тип не указан";
+        throw new Error(`Ответ не JSON (${ct}) — «${res.text.replace(/\s+/g, " ").slice(0, 60)}»`);
+      }
+      if (!valid(data)) throw new Error("Ответ пустой (нет событий)");
+      tried.push({ url, ok: true, dnsVia: res.dnsVia, insecure: res.insecure });
+      if (opts.cacheKey) winnerCache.set(opts.cacheKey, { url, ts: Date.now() });
+      return { data, url, dnsVia: res.dnsVia, insecure: res.insecure, tried };
+    } catch (e) {
+      // в список «проверено адресов» идёт короткая причина без повторов имени хоста
+      const msg = e instanceof Error && (e as any).code === "ENOTFOUND" ? e.message : describeNetError(e, timeoutMs);
+      const compact = withoutHost(url, msg);
+      tried.push({ url, ok: false, error: compact });
+      throw new Error(compact);
+    }
+  };
+
+  // 1. быстрый путь: недавно рабочий адрес
+  const known = opts.cacheKey ? winnerCache.get(opts.cacheKey) : undefined;
+  if (known && Date.now() - known.ts < WINNER_TTL_MS && list.includes(known.url)) {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+    try {
+      return await attempt(known.url, ctrl);
+    } catch {
+      winnerCache.delete(opts.cacheKey!);
+      tried.length = 0;
     } finally {
-      clearTimeout(timer);
       signal?.removeEventListener?.("abort", onAbort);
     }
   }
 
-  throw lastErr instanceof BookError ? lastErr : new BookError(describeFetchError(lastErr, timeoutMs));
+  // 2. параллельная проверка всех зеркал
+  const ctrls = list.map(() => new AbortController());
+  const onAbort = () => ctrls.forEach((c) => c.abort());
+  signal?.addEventListener?.("abort", onAbort, { once: true });
+
+  try {
+    const result = await new Promise<Loaded<T>>((resolve, reject) => {
+      let pending = list.length;
+      list.forEach((url, i) => {
+        attempt(url, ctrls[i]).then(
+          (ok) => {
+            ctrls.forEach((c, j) => j !== i && c.abort());
+            resolve(ok);
+          },
+          () => {
+            if (--pending === 0) reject(new Error("все адреса недоступны"));
+          }
+        );
+      });
+    });
+    return result;
+  } catch {
+    if (signal?.aborted) throw new BookError("Запрос отменён (общий таймаут)");
+    const failed = tried.filter((t) => !t.ok);
+    const parts = failed.map((t) => {
+      const host = hostOf(t.url);
+      const reason = short(t.error || "ошибка", 70);
+      return reason.includes(host) ? reason : `${host} — ${reason}`;
+    });
+    const reasons = [...new Set(parts)].slice(0, 3).join("; ");
+    const allDns = failed.length > 0 && failed.every((t) => /адрес не найден/i.test(t.error || ""));
+    const err = new BookError(
+      `Ни один адрес не ответил (${list.length}): ${short(reasons, 240)}` +
+        (allDns ? ". Адрес не нашли ни системный DNS, ни резервные (8.8.8.8, 1.1.1.1, 77.88.8.8), ни DNS-over-HTTPS" : "")
+    ) as BookError & { tried?: TriedEndpoint[] };
+    err.tried = tried.slice();
+    throw err;
+  } finally {
+    ctrls.forEach((c) => c.abort());
+    signal?.removeEventListener?.("abort", onAbort);
+  }
 }
 
 /** Нормализация названия команды для сопоставления между конторами */
@@ -246,3 +295,5 @@ export const isoFrom = (secOrMs: number): string => {
 
 /** Округление линии тотала/форы до 0.25 для сопоставления */
 export const roundLine = (n: number) => Math.round(n * 4) / 4;
+
+export { isIpAddress, describeNetError as describeFetchError };

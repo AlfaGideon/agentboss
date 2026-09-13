@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePrefs, qs } from "@/lib/prefs";
+import { usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { BookToggle, SportToggle, SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, Stat, fmtTime, money, pct, timeUntil } from "@/components/ui";
 import { sportTitle } from "@/lib/books/types";
@@ -53,6 +53,7 @@ export default function ValuePage() {
           minEdge: prefs.minEdge,
           minBooks: prefs.minBooks,
           method: prefs.method,
+          dns: dnsParam(prefs),
         })}`
       );
       const d = await r.json();

@@ -34,7 +34,7 @@ export async function fetchAllBooks(
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const { events, endpoint, rawCount } = await a.fetchLine(sport, ctrl.signal);
+        const { events, endpoint, rawCount, dnsVia, insecure, tried } = await a.fetchLine(sport, ctrl.signal);
         return {
           bookKey: a.key,
           bookTitle: a.title,
@@ -42,12 +42,16 @@ export async function fetchAllBooks(
           events,
           endpoint,
           rawCount,
+          dnsVia,
+          insecure,
+          tried,
           ms: Date.now() - t0,
         };
       } catch (e) {
+        const anyE = e as { name?: string; message?: string; endpoint?: string; tried?: BookFetchResult["tried"] };
         const msg =
           e instanceof Error
-            ? e.name === "AbortError"
+            ? anyE.name === "AbortError"
               ? `Таймаут ${Math.round(timeoutMs / 1000)} с`
               : e.message
             : "Неизвестная ошибка";
@@ -57,6 +61,8 @@ export async function fetchAllBooks(
           ok: false,
           events: [],
           error: msg,
+          endpoint: anyE?.endpoint,
+          tried: anyE?.tried,
           ms: Date.now() - t0,
         };
       } finally {

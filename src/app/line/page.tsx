@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePrefs, qs } from "@/lib/prefs";
+import { usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { BookToggle, SportSelect, SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, fmtTime, timeUntil } from "@/components/ui";
 import type { MarketView, SportKey } from "@/lib/books/types";
@@ -44,6 +44,7 @@ export default function LinePage() {
           books: prefs.books.join(","),
           method: prefs.method,
           live: liveFilter === "all" ? undefined : liveFilter,
+          dns: dnsParam(prefs),
         })}`
       );
       const d = await r.json();

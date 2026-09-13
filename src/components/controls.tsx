@@ -101,20 +101,40 @@ export function SportToggle({
   );
 }
 
-export function SourceStatus({
-  sources,
-}: {
-  sources?: {
-    book: string;
-    key: string;
-    ok: boolean;
-    count?: number;
-    error?: string;
-    ms?: number;
-    endpoint?: string;
-    rawCount?: number;
-  }[];
-}) {
+export type SourceInfo = {
+  book: string;
+  key: string;
+  ok: boolean;
+  count?: number;
+  error?: string;
+  ms?: number;
+  endpoint?: string;
+  rawCount?: number;
+  /** как определился адрес: системный DNS, резервный DNS, DNS-over-HTTPS */
+  dnsVia?: string;
+  /** сертификат подменили — соединение прошло без проверки */
+  insecure?: boolean;
+  /** разбор по каждому адресу-зеркалу */
+  tried?: { url: string; ok: boolean; error?: string; dnsVia?: string }[];
+  /** человеческая причина сбоя, см. api/_util.ts */
+  errorKind?: "dns" | "blocked" | "http" | "empty" | "other";
+};
+
+/** Адрес найден не системным DNS, а резервным — об этом стоит сказать явно */
+const usedBackupDns = (via?: string) => Boolean(via && !/^(системный DNS|IP)$/.test(via));
+
+/** Простое объяснение вместо технического текста ошибки */
+const HUMAN: Record<string, string> = {
+  dns:
+    "Адрес конторы не найден в DNS: проверены системный сервер, публичные (8.8.8.8, 1.1.1.1, 77.88.8.8) и DNS-over-HTTPS. Похоже, имя блокируется в вашей сети.",
+  blocked:
+    "Адреса найдены, но соединение не проходит: похоже на блокировку провайдера, прокси или антивирус.",
+  http: "Контора ответила отказом запросу — вероятно, включена защита от ботов.",
+  empty: "Ответ получен, но событий по этому виду спорта в линии нет.",
+  other: "Данные не пришли — подробности ниже.",
+};
+
+export function SourceStatus({ sources }: { sources?: SourceInfo[] }) {
   if (!sources?.length) return null;
   return (
     <div className="grid gap-2">
@@ -125,23 +145,59 @@ export function SourceStatus({
             s.ok ? "border-good/40 bg-good/5" : "border-bad/40 bg-bad/5"
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className={`h-2 w-2 shrink-0 rounded-full ${s.ok ? "bg-good" : "bg-bad"}`} />
             <span className="font-medium text-slate-100">{s.book}</span>
             <span className="text-slate-500">{s.ms ?? 0} мс</span>
             <span className={s.ok ? "text-good" : "text-bad"}>
               {s.ok ? `событий: ${s.count ?? 0}` : "нет данных"}
             </span>
+            {s.ok && usedBackupDns(s.dnsVia) && (
+              <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-accent">
+                адрес найден через резервный DNS: {s.dnsVia}
+              </span>
+            )}
+            {s.ok && s.insecure && (
+              <span className="rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-warn">
+                сертификат подменён (антивирус?) — соединение без проверки
+              </span>
+            )}
           </div>
+
           {s.ok ? (
             <p className="mt-1 break-all text-slate-500">
               {s.endpoint ? `адрес: ${s.endpoint}` : ""}
+              {!usedBackupDns(s.dnsVia) && s.dnsVia ? ` · DNS: ${s.dnsVia}` : ""}
               {s.rawCount ? ` (строк в ответе: ${s.rawCount})` : ""}
             </p>
           ) : (
             <>
-              <p className="mt-1 whitespace-normal break-words text-bad">{s.error || "ошибка без описания"}</p>
-              {s.endpoint && <p className="mt-1 break-all text-slate-500">адрес: {s.endpoint}</p>}
+              <p className="mt-1 whitespace-normal break-words text-slate-300">
+                {(s.errorKind && HUMAN[s.errorKind]) || s.error || "ошибка без описания"}
+              </p>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
+                  {s.tried?.length ? `подробности: проверено адресов — ${s.tried.length}` : "подробности"}
+                </summary>
+                {s.tried?.length ? (
+                  <ul className="mt-1 space-y-1">
+                    {s.tried.map((t) => (
+                      <li key={t.url} className="break-all text-slate-500">
+                        <span className={t.ok ? "text-good" : "text-slate-400"}>
+                          {t.ok ? "ок · " : "нет · "}
+                        </span>
+                        {t.url}
+                        {t.error ? ` — ${t.error}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 break-all text-slate-500">
+                    {s.error || "ошибка без описания"}
+                    {s.endpoint ? ` · адрес: ${s.endpoint}` : ""}
+                  </p>
+                )}
+              </details>
             </>
           )}
         </div>
