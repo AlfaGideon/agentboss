@@ -25,7 +25,7 @@ export const bookTitle = (key: string) => ADAPTERS.find((a) => a.key === key)?.t
 export async function fetchAllBooks(
   sport: SportKey,
   bookKeys: string[],
-  timeoutMs = 12000
+  timeoutMs = 25000
 ): Promise<BookFetchResult[]> {
   const chosen = ADAPTERS.filter((a) => bookKeys.includes(a.key));
   return Promise.all(
@@ -48,7 +48,7 @@ export async function fetchAllBooks(
         const msg =
           e instanceof Error
             ? e.name === "AbortError"
-              ? `Таймаут ${timeoutMs / 1000} с`
+              ? `Таймаут ${Math.round(timeoutMs / 1000)} с`
               : e.message
             : "Неизвестная ошибка";
         return {

@@ -41,6 +41,8 @@ export async function GET(req: Request) {
         ok: r.ok,
         count: r.events.length,
         error: r.error,
+        endpoint: r.endpoint,
+        rawCount: r.rawCount,
         ms: r.ms,
       })),
       totalMerged: merged.length,
