@@ -9,6 +9,7 @@ const NAV = [
   { href: "/line", label: "Сравнение линий", icon: "≡" },
   { href: "/arbitrage", label: "Вилки", icon: "⇄" },
   { href: "/value", label: "Ставки с перевесом", icon: "◆" },
+  { href: "/express", label: "Экспрессы Winline", icon: "⚡" },
   { href: "/models", label: "Прогноз матча", icon: "∑" },
   { href: "/calculators", label: "Калькуляторы", icon: "🧮" },
   { href: "/tracker", label: "Мои ставки", icon: "▤" },

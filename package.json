@@ -10,7 +10,9 @@
     "start:lan": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
     "build:parsers": "tsc --project tsconfig.test.json",
-    "test:parsers": "npm run build:parsers && node scripts/test-parsers.mjs"
+    "test:parsers": "npm run build:parsers && node scripts/test-parsers.mjs",
+    "test:express": "npm run build:parsers && node scripts/test-express.mjs",
+    "test": "npm run test:parsers && npm run test:express"
   },
   "dependencies": {
     "next": "^14.2.35",
