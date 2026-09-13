@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+set "NODE_TLS_REJECT_UNAUTHORIZED=0"
 cd /d "%~dp0"
 title Stavka PRO - diagnostics
 cls
@@ -40,4 +41,11 @@ if exist "%~dp0diag-report.txt" (
 echo.
 echo   Send diag-report.txt to support - it has the exact reason.
 echo.
+pause
+
+echo.
+echo ==========================================
+echo               ВЫВОД ДЛЯ ЧАТА
+echo ==========================================
+node "%~dp0get-error.mjs"
 pause
