@@ -15,5 +15,5 @@ next-env.d.ts
 data/*.json
 
 # отчёт диагностики
- diag-report.txt
+diag-report.txt
 *.tsbuildinfo

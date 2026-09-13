@@ -1,5 +1,5 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
-import { getJson, roundLine } from "./http";
+import { getJsonFirst, roundLine } from "./http";
 
 /**
  * Winline. Публичное API витрины (wl-nsk.winline.ru / winline.ru/api).
@@ -19,7 +19,8 @@ const SPORT_IDS: Partial<Record<SportKey, number>> = {
 const endpoints = (id: number) => [
   `https://wl-nsk.winline.ru/betting/api/v1/line/sport/${id}/events`,
   `https://winline.ru/betting/api/v1/line/sport/${id}/events`,
-  `https://wl-nsk.winline.ru/betting/api/v1/line/events?sportId=${id}`,
+  `https://api.winline.ru/betting/api/v1/line/sport/${id}/events`,
+  `https://winline.ru/api/v1/line/sport/${id}/events`,
 ];
 
 type WlOutcome = { name?: string; caption?: string; value?: number; coefficient?: number; param?: number; parameter?: number };
@@ -118,19 +119,13 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
   const id = SPORT_IDS[sport];
   if (!id) return { events: [], endpoint: "", rawCount: 0 };
 
-  let raw: any = null;
-  let endpoint = "";
-  let lastErr: unknown = null;
-  for (const url of endpoints(id)) {
-    try {
-      raw = await getJson<any>(url, signal);
-      endpoint = url;
-      if (raw) break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (!raw) throw lastErr instanceof Error ? lastErr : new Error("Линия Winline недоступна");
+  const loaded = await getJsonFirst<any>(endpoints(id), signal, {
+    cacheKey: "winline",
+    isValid: (d) => Boolean(d),
+  });
+  const raw = loaded.data;
+  const endpoint = loaded.url;
+  if (!raw) throw new Error("Линия Winline ответила пусто");
 
   const list: WlEvent[] = Array.isArray(raw) ? raw : raw.events || raw.data || raw.items || [];
   const out: BookEvent[] = [];
@@ -160,7 +155,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
       markets,
     });
   }
-  return { events: out, endpoint, rawCount: list.length };
+  return { events: out, endpoint, rawCount: list.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
 }
 
 export const winline: BookAdapter = {

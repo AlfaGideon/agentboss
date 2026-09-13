@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DEFAULT_PREFS, usePrefs, qs } from "@/lib/prefs";
+import { DEFAULT_PREFS, usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { BookToggle, SportToggle, SourceStatus, BOOKS } from "@/components/controls";
 import { Spinner } from "@/components/ui";
 
@@ -13,7 +13,13 @@ export default function SettingsPage() {
   const check = async () => {
     setChecking(true);
     try {
-      const r = await fetch(`/api/line?${qs({ sport: prefs.sports[0] || "football", books: prefs.books.join(",") })}`);
+      const r = await fetch(
+        `/api/line?${qs({
+          sport: prefs.sports[0] || "football",
+          books: prefs.books.join(","),
+          dns: dnsParam(prefs),
+        })}`
+      );
       const d = await r.json();
       setSources(d.sources || []);
     } catch {
@@ -28,9 +34,9 @@ export default function SettingsPage() {
       <section className="card-pad space-y-4">
         <h3 className="font-medium text-white">Источники котировок</h3>
         <p className="text-sm text-slate-400">
-          Приложение обращается напрямую к публичным линиям российских букмекеров. Никаких ключей
-          API и регистрации не требуется — но сервер, на котором запущено приложение, должен иметь
-          доступ к сайтам контор (российский IP, без VPN).
+          Приложение обращается напрямую к публичным линиям российских букмекеров: ни ключей API,
+          ни регистрации не нужно. Адреса контор ищутся своим резолвером — если провайдерский DNS
+          их не находит, подключаются резервные (8.8.8.8, 1.1.1.1, 77.88.8.8) и DNS-over-HTTPS.
         </p>
         <ul className="grid gap-2 sm:grid-cols-2">
           {BOOKS.map((b) => (
@@ -48,22 +54,25 @@ export default function SettingsPage() {
         {sources && sources.every((s) => !s.ok) && (
           <div className="space-y-2 rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs text-slate-300">
             <p>
-              Ни одна контора не ответила. Точная причина — в ошибках выше. Чаще всего это одно из
-              следующего:
+              Ни одна контора не ответила. Точная причина по каждому адресу — в ошибках выше.
+              Что они обычно означают:
             </p>
             <ul className="list-inside list-disc space-y-1 text-slate-400">
               <li>
+                <b className="text-slate-200">DNS: адрес не найден</b> — адрес не отдал ни
+                системный DNS, ни резервные (публичные DNS-серверы и DNS-over-HTTPS). Значит имя
+                блокируется в самой сети: помогает другая сеть или мобильный интернет.
+                Проверьте, что в настройках ниже включён режим «автоматически».
+              </li>
+              <li>
                 <b className="text-slate-200">Сертификат не принят</b> — антивирус (Касперский,
-                Dr.Web, ESET) проверяет защищённые соединения и подменяет сертификат. Выключите
-                проверку HTTPS в антивирусе.
+                Dr.Web, ESET) проверяет защищённые соединения и подменяет сертификат. Приложение
+                само повторяет такой запрос без проверки сертификата; чтобы убрать предупреждение
+                насовсем, выключите проверку HTTPS в антивирусе.
               </li>
               <li>
-                <b className="text-slate-200">DNS: адрес не найден</b> — интернет есть, но адреса
-                контор не резолвятся. Проверьте, что VPN выключен, и смените DNS на 8.8.8.8.
-              </li>
-              <li>
-                <b className="text-slate-200">Соединение сброшено / таймаут</b> — провайдер или
-                корпоративный прокси режет эти адреса.
+                <b className="text-slate-200">Соединение сброшено / таймаут</b> — соединение режет
+                провайдер, прокси или фильтр. Адрес при этом находится, но ответа нет.
               </li>
               <li>
                 <b className="text-slate-200">HTTP 403 / ответ не JSON</b> — контора включила защиту
@@ -72,11 +81,35 @@ export default function SettingsPage() {
             </ul>
             <p>
               Полный разбор — двойным щелчком по файлу{" "}
-              <code className="text-accent">Диагностика.bat</code>: он проверит DNS, TLS и ответы
-              каждого адреса и сохранит отчёт <code className="text-accent">diag-report.txt</code>.
+              <code className="text-accent">Диагностика.bat</code>: он проверит DNS (включая
+              резервные серверы), TLS и ответы каждого адреса и сохранит отчёт{" "}
+              <code className="text-accent">diag-report.txt</code>.
             </p>
           </div>
         )}
+      </section>
+
+      <section className="card-pad space-y-3">
+        <h3 className="font-medium text-white">Поиск адресов контор (DNS)</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">Как определять адреса</label>
+            <select
+              className="input"
+              value={prefs.dnsMode}
+              onChange={(e) => setPrefs({ ...prefs, dnsMode: e.target.value as "auto" | "system" })}
+            >
+              <option value="auto">автоматически: системный DNS + резервные (рекомендуется)</option>
+              <option value="system">только системный DNS</option>
+            </select>
+          </div>
+          <p className="text-xs text-slate-500 sm:pt-6">
+            В режиме «автоматически» адрес конторы ищется сначала системным DNS, а если он его не
+            находит — публичными серверами по UDP и по DNS-over-HTTPS. Резервные серверы
+            спрашивают только адреса сайтов контор: больше ничего наружу не уходит. Если адрес
+            найден резервом, в статусе источников появится пометка об этом.
+          </p>
+        </div>
       </section>
 
       <section className="card-pad space-y-5">

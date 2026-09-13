@@ -1,5 +1,5 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
-import { getJson, roundLine } from "./http";
+import { getJsonFirst, roundLine } from "./http";
 
 /**
  * Универсальный адаптер для российских контор с похожей структурой ответа.
@@ -155,19 +155,14 @@ export function makeAdapter(cfg: GenericConfig): BookAdapter {
     site: cfg.site,
     sports: ["football", "hockey", "tennis", "basketball", "volleyball", "table_tennis", "mma", "esports"],
     async fetchLine(sport: SportKey, signal: AbortSignal) {
-      let raw: any = null;
-      let endpoint = "";
-      let lastErr: unknown = null;
-      for (const url of cfg.endpoints(sport)) {
-        try {
-          raw = await getJson<any>(url, signal, cfg.headers);
-          endpoint = url;
-          if (raw) break;
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      if (!raw) throw lastErr instanceof Error ? lastErr : new Error(`Линия «${cfg.title}» недоступна`);
+      const loaded = await getJsonFirst<any>(cfg.endpoints(sport), signal, {
+        cacheKey: cfg.key,
+        headers: cfg.headers,
+        isValid: (d) => Boolean(d),
+      });
+      const raw = loaded.data;
+      const endpoint = loaded.url;
+      if (!raw) throw new Error(`Линия «${cfg.title}» ответила пусто`);
 
       const all = collect(raw);
       const re = cfg.sportMatch[sport];
@@ -207,7 +202,7 @@ export function makeAdapter(cfg: GenericConfig): BookAdapter {
           markets,
         });
       }
-      return { events: out, endpoint, rawCount: all.length };
+      return { events: out, endpoint, rawCount: all.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
     },
   };
 }

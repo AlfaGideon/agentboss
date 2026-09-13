@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SportSelect, SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, fmtTime, pct } from "@/components/ui";
 import { poissonMarkets, impliedProb, kellyFraction } from "@/lib/math";
-import { qs, usePrefs } from "@/lib/prefs";
+import { qs, usePrefs, dnsParam } from "@/lib/prefs";
 import type { MarketView, SportKey } from "@/lib/books/types";
 
 type Ev = {
@@ -33,7 +33,7 @@ export default function ModelsPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`/api/line?${qs({ sport, books: prefs.books.join(","), live: "0" })}`);
+      const r = await fetch(`/api/line?${qs({ sport, books: prefs.books.join(","), live: "0", dns: dnsParam(prefs) })}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       const list: Ev[] = (d.events || []).filter((e: Ev) =>

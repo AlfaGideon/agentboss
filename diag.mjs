@@ -5,12 +5,12 @@
  * Никаких зависимостей — только встроенные модули Node.js.
  *
  * Что делает для каждого адреса:
- *   DNS  — резолвится ли хост и за сколько
+ *   DNS  — резолвится ли хост: системный DNS, затем резервные (UDP) и DNS-over-HTTPS
  *   TCP  — соединяемся ли на 443
  *   TLS  — проходит ли рукопожатие, какой протокол и центр сертификации
  *   HTTP — статус, content-type, первые байты ответа
- * Дополнительно проверяет тот же адрес через fetch() (undici), как его
- * дергает само приложение, и сравнивает результат.
+ * Соединение выполняется по найденному адресу с правильным SNI и Host, поэтому
+ * проверка проходит даже тогда, когда системный DNS адрес не отдаёт.
  */
 
 import dns from "node:dns";
@@ -30,8 +30,8 @@ const TARGETS = [
   { book: "контроль", host: "api.github.com", path: "/" },
   { book: "Фонбет", host: "line-static01.bkfon-resources.com", path: "/line/currentLine/ru/0.json" },
   { book: "Фонбет", host: "line11.bkfon-resources.com", path: "/line/currentLine/ru/0.json" },
-  { book: "Фонбет", host: "line.bkfon-resources.com", path: "/line/currentLine/ru/0.json" },
-  { book: "Фонбет", host: "line-static01.bkfon-resources.com", path: "/line/currentLine/ru/0.json.gz" },
+  { book: "Фонбет", host: "line01i.bkfon-resources.com", path: "/line/currentLine/ru/0.json.gz" },
+  { book: "Фонбет", host: "line02i.bkfon-resources.com", path: "/line/currentLine/ru/0.json.gz" },
   { book: "Фонбет", host: "fon.bet", path: "/" },
   { book: "Лига Ставок", host: "api.ligastavok.ru", path: "/api/v1/line/events?sportIds=1&limit=5" },
   { book: "Лига Ставок", host: "ligastavok.ru", path: "/api/v1/line/events?sportIds=1&limit=5" },
@@ -39,11 +39,11 @@ const TARGETS = [
   { book: "Winline", host: "wl-nsk.winline.ru", path: "/betting/api/v1/line/sport/1/events" },
   { book: "Winline", host: "winline.ru", path: "/betting/api/v1/line/sport/1/events" },
   { book: "Winline", host: "winline.ru", path: "/" },
-  { book: "Олимп", host: "api.olimp.bet", path: "/api/v3/line/sports" },
   { book: "Олимп", host: "olimp.bet", path: "/api/v3/line/sports" },
+  { book: "Олимп", host: "www.olimp.bet", path: "/api/v3/line/sports" },
   { book: "Олимп", host: "olimp.bet", path: "/" },
   { book: "БетБум", host: "betboom.ru", path: "/api/v2/line/events?sportId=1" },
-  { book: "БетБум", host: "api.betboom.ru", path: "/v1/line/sport/1/events" },
+  { book: "БетБум", host: "betboom.ru", path: "/api/line/sport/1" },
   { book: "БетБум", host: "betboom.ru", path: "/" },
   { book: "Марафон", host: "www.marathonbet.ru", path: "/su/betting/json/sport/8" },
   { book: "Марафон", host: "www.marathonbet.ru", path: "/" },
@@ -67,28 +67,132 @@ const withTimeout = (p, ms, label) =>
     new Promise((_, rej) => setTimeout(() => rej(new Error(`таймаут ${ms} мс (${label})`)), ms)),
   ]);
 
-function dnsLookup(host) {
-  const t0 = Date.now();
-  return withTimeout(
-    new Promise((resolve) => {
-      dns.lookup(host, { all: true }, (err, addrs) => {
-        if (err) return resolve({ ok: false, ms: Date.now() - t0, error: err.code || err.message });
-        resolve({
-          ok: true,
-          ms: Date.now() - t0,
-          addrs: addrs.map((a) => `${a.address}${a.family === 6 ? " (IPv6)" : ""}`),
-        });
-      });
-    }),
-    TIMEOUT,
-    "DNS"
-  ).catch((e) => ({ ok: false, ms: Date.now() - t0, error: e.message }));
+/* ── DNS: системный, а если он не нашёл — резервные серверы и DNS-over-HTTPS ── */
+
+const UDP_SERVERS = ["8.8.8.8", "1.1.1.1", "77.88.8.8", "9.9.9.9"];
+const DOH_PROVIDERS = [
+  { name: "Яндекс.DNS", host: "common.dot.dns.yandex.net", ips: ["77.88.8.8", "77.88.8.1"] },
+  { name: "AdGuard DNS", host: "dns.adguard-dns.com", ips: ["94.140.14.14", "94.140.15.15"] },
+  { name: "Google DNS", host: "dns.google", ips: ["8.8.8.8", "8.8.4.4"] },
+  { name: "Cloudflare", host: "cloudflare-dns.com", ips: ["1.1.1.1", "1.0.0.1"] },
+];
+
+function systemLookup(host) {
+  return new Promise((resolve, reject) => {
+    dns.lookup(host, { all: true }, (err, addrs) => {
+      if (err) return reject(err);
+      if (!addrs?.length) return reject(new Error("нет записей"));
+      const v4 = addrs.find((a) => a.family === 4);
+      resolve({ ip: (v4 ?? addrs[0]).address, all: addrs.map((a) => a.address) });
+    });
+  });
 }
 
-function tcpConnect(host, port = 443) {
+function udpLookup(host, server) {
+  return new Promise((resolve, reject) => {
+    const resolver = new dns.Resolver({ timeout: 2000, tries: 1 });
+    try {
+      resolver.setServers([server]);
+    } catch (e) {
+      return reject(e);
+    }
+    resolver.resolve4(host, (err, addrs) => {
+      if (!err && addrs?.length) return resolve(addrs[0]);
+      resolver.resolve6(host, (err6, addrs6) => {
+        if (!err6 && addrs6?.length) return resolve(addrs6[0]);
+        reject(new Error(err?.code || err6?.code || "нет записей"));
+      });
+    });
+  });
+}
+
+/** Запрос к DoH-сервису идёт на его IP, поэтому DNS для него не нужен */
+function dohLookup(host, provider, ip) {
+  return new Promise((resolve, reject) => {
+    const path = provider.host.includes("cloudflare")
+      ? `/dns-query?name=${encodeURIComponent(host)}&type=A`
+      : `/resolve?name=${encodeURIComponent(host)}&type=A`;
+    const req = https.request(
+      {
+        host: ip,
+        port: 443,
+        path,
+        servername: provider.host,
+        rejectUnauthorized: false,
+        headers: {
+          Host: provider.host,
+          Accept: "application/dns-json",
+          "User-Agent": UA,
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try {
+            const j = JSON.parse(data);
+            const a = (j.Answer || []).find((x) => x.type === 1 || x.type === 28);
+            if (a?.data) return resolve(a.data);
+            reject(j.Status === 3 ? new Error("NXDOMAIN") : new Error("нет записи A"));
+          } catch (e) {
+            reject(new Error("ответ не JSON"));
+          }
+        });
+      }
+    );
+    req.setTimeout(TIMEOUT, () => req.destroy(new Error("таймаут")));
+    req.once("error", (e) => reject(new Error(e.code || e.message)));
+    req.end();
+  });
+}
+
+/** Системный DNS → публичные DNS по UDP → DNS-over-HTTPS */
+async function resolveTarget(host) {
+  const t0 = Date.now();
+  const errors = [];
+
+  try {
+    const sys = await withTimeout(systemLookup(host), TIMEOUT, "DNS");
+    return { ok: true, ms: Date.now() - t0, ip: sys.ip, addrs: sys.all, via: "системный DNS", errors };
+  } catch (e) {
+    errors.push(`системный DNS: ${e.code || e.message}`);
+  }
+
+  const udp = await Promise.all(
+    UDP_SERVERS.map((srv) =>
+      withTimeout(udpLookup(host, srv), TIMEOUT, `UDP ${srv}`)
+        .then((ip) => ({ ip, via: `DNS ${srv}` }))
+        .catch((e) => {
+          errors.push(`DNS ${srv}: ${e.code || e.message}`);
+          return null;
+        })
+    )
+  );
+  const udpWin = udp.find(Boolean);
+  if (udpWin) return { ok: true, ms: Date.now() - t0, ip: udpWin.ip, via: udpWin.via, errors };
+
+  const doh = await Promise.all(
+    DOH_PROVIDERS.flatMap((p) =>
+      p.ips.map((ip) =>
+        withTimeout(dohLookup(host, p, ip), TIMEOUT, `DoH ${p.name}`)
+          .then((addr) => ({ ip: addr, via: `${p.name} (DNS-over-HTTPS)` }))
+          .catch((e) => {
+            errors.push(`${p.name} (DoH): ${e.message}`);
+            return null;
+          })
+      )
+    )
+  );
+  const dohWin = doh.find(Boolean);
+  if (dohWin) return { ok: true, ms: Date.now() - t0, ip: dohWin.ip, via: dohWin.via, errors };
+
+  return { ok: false, ms: Date.now() - t0, error: "адрес не найден ни одним способом", errors };
+}
+
+function tcpConnect(ip, port = 443) {
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const s = net.connect({ host, port });
+    const s = net.connect({ host: ip, port });
     const done = (r) => {
       s.destroy();
       resolve({ ...r, ms: Date.now() - t0 });
@@ -100,10 +204,10 @@ function tcpConnect(host, port = 443) {
   });
 }
 
-function tlsProbe(host, rejectUnauthorized = true) {
+function tlsProbe(host, ip, rejectUnauthorized = true) {
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const s = tls.connect({ host, port: 443, servername: host, rejectUnauthorized });
+    const s = tls.connect({ host: ip, port: 443, servername: host, rejectUnauthorized });
     const done = (r) => {
       s.destroy();
       resolve({ ...r, ms: Date.now() - t0 });
@@ -125,16 +229,18 @@ function tlsProbe(host, rejectUnauthorized = true) {
   });
 }
 
-function httpsGet(host, path) {
+function httpsGet(host, ip, path) {
   const t0 = Date.now();
   return new Promise((resolve) => {
     const req = https.request(
       {
-        host,
+        host: ip,
         path,
         method: "GET",
         port: 443,
+        servername: host,
         headers: {
+          Host: host,
           "User-Agent": UA,
           Accept: "application/json, text/plain, */*",
           "Accept-Language": "ru-RU,ru;q=0.9",
@@ -214,25 +320,25 @@ async function fetchProbe(url) {
 
 async function probe(t) {
   const url = `https://${t.host}${t.path}`;
-  const d = await dnsLookup(t.host);
+  const d = await resolveTarget(t.host);
   const line = { book: t.book, host: t.host, path: t.path, dns: d };
 
   if (!d.ok) {
     line.result = `НЕТ ДОСТУПА: DNS — ${d.error}`;
     return line;
   }
-  const tcp = await tcpConnect(t.host);
+  const tcp = await tcpConnect(d.ip);
   line.tcp = tcp;
   if (!tcp.ok) {
     line.result = `НЕТ ДОСТУПА: TCP — ${tcp.error}`;
     return line;
   }
-  const tlsInfo = await tlsProbe(t.host);
+  const tlsInfo = await tlsProbe(t.host, d.ip);
   line.tls = tlsInfo;
   if (!tlsInfo.ok) {
     let extra = "";
-    if (/CERT|VERIFY|SIGNATURE|SELF_SIGNED|DEPTH_ZERO/i.test(tlsInfo.error)) {
-      const inc = await tlsProbe(t.host, false);
+    if (/CERT|VERIFY|SIGNATURE|SELF_SIGNED|DEPTH_ZERO|UNABLE_TO_VERIFY/i.test(tlsInfo.error)) {
+      const inc = await tlsProbe(t.host, d.ip, false);
       if (inc.ok) {
         extra = ` | БЕЗ ПРОВЕРКИ СЕРТИФИКАТА СОЕДИНЕНИЕ ПРОХОДИТ (кем выпущен: ${inc.issuer}). ` +
           `Это значит, что трафик перехватывает антивирус или корпоративный прокси, а Node его ` +
@@ -246,9 +352,10 @@ async function probe(t) {
   if (!tlsInfo.authorized) {
     line.mitm = true;
   }
-  const http = await httpsGet(t.host, t.path);
+  const http = await httpsGet(t.host, d.ip, t.path);
   line.http = http;
-  line.fetch = await fetchProbe(url);
+  // fetch() из Node ходит только через системный DNS — сравниваем, что было бы без резерва
+  line.fetch = d.via === "системный DNS" ? await fetchProbe(url) : { skipped: true };
 
   if (http.ok && http.status === 200) {
     const looksJson = /^[\s\r\n]*[[{]/.test(http.chunk || "");
@@ -299,7 +406,9 @@ async function pool(items, limit, fn) {
       cur = r.book;
       log(`\n── ${cur} ${"─".repeat(Math.max(0, 60 - cur.length))}`);
     }
-    const dns = r.dns?.ok ? `dns ${r.dns.ms}мс [${(r.dns.addrs || []).join(", ")}]` : `DNS: ${r.dns?.error}`;
+    const dns = r.dns?.ok
+      ? `dns ${r.dns.ms}мс → ${r.dns.ip}  (${r.dns.via})`
+      : `DNS: ${r.dns?.error}${r.dns?.errors?.length ? " | " + r.dns.errors.slice(0, 4).join("; ") : ""}`;
     log(`   https://${r.host}${r.path}`);
     log(`     ${dns}`);
     if (r.tcp) log(`     tcp ${r.tcp.ok ? r.tcp.ms + "мс" : "ОШИБКА " + r.tcp.error}`);
@@ -311,11 +420,17 @@ async function pool(items, limit, fn) {
       log(
         `     http ${r.http.ok ? `${r.http.ms}мс статус ${r.http.status} ${r.http.type}` : "ОШИБКА " + r.http.error}`
       );
-    if (r.fetch)
+    if (r.fetch && !r.fetch.skipped)
       log(
         `     fetch() ${r.fetch.ok ? `${r.fetch.ms}мс статус ${r.fetch.status} ${r.fetch.len} байт` : r.fetch.error}`
       );
     log(`     ► ${r.result}`);
+  }
+
+  const backup = results.filter((r) => r.dns?.ok && r.dns.via && r.dns.via !== "системный DNS");
+  if (backup.length) {
+    log("\n  Адреса, которые системный DNS не отдал (найдены резервом):");
+    for (const r of backup) log(`    ${r.host} → ${r.dns.ip}  (${r.dns.via})`);
   }
 
   const bad = results.filter((r) => !/^OK/.test(r.result) && r.book !== "контроль");
@@ -348,9 +463,11 @@ async function pool(items, limit, fn) {
     log("  Что делать: отключить проверку HTTPS в антивирусе (Касперский/Dr.Web/ESET —");
     log("  «Защищённые соединения» → «Не проверять») или экспортировать его корневой");
     log("  сертификат и прописать путь к нему в переменную окружения NODE_EXTRA_CA_CERTS.");
-  } else if (bad.every((r) => /DNS — ENOTFOUND/.test(r.result || ""))) {
-    log("  DNS не находит эти адреса. Проверьте интернет и DNS провайдера;");
-    log("  попробуйте сменить DNS на 8.8.8.8 / 1.1.1.1 (но не включайте VPN).");
+  } else if (bad.every((r) => /DNS — /.test(r.result || ""))) {
+    log("  Эти адреса не находит ни системный DNS, ни публичные серверы (8.8.8.8, 1.1.1.1,");
+    log("  77.88.8.8), ни DNS-over-HTTPS. Значит имена блокируются в самой сети:");
+    log("  попробуйте другую сеть или мобильный интернет. Свой DNS можно указать в Windows:");
+    log("  параметры сети → DNS → 8.8.8.8 / 1.1.1.1.");
   } else {
     log("  Соединение есть, но конторы отвечают не так, как ожидает приложение.");
     log("  Ниже — статусы по каждому адресу, по ним поправим адреса/заголовки.");

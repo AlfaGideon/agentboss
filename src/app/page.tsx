@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { usePrefs, qs } from "@/lib/prefs";
+import { usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, Stat, fmtTime, pct, timeUntil } from "@/components/ui";
 import { bankrollStats } from "@/lib/math";
@@ -26,7 +26,11 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const base = { sports: prefs.sports.join(","), books: prefs.books.join(",") };
+      const base = {
+        sports: prefs.sports.join(","),
+        books: prefs.books.join(","),
+        dns: dnsParam(prefs),
+      };
       const [a, v] = await Promise.all([
         fetch(`/api/arbs?${qs({ ...base, minProfit: prefs.minArbProfit })}`),
         fetch(
@@ -49,13 +53,13 @@ export default function Dashboard() {
       setComparable(ad.comparable || 0);
       setHint(ad.hint);
       setUpdated(ad.fetchedAt);
-      if (ad.hint) setError("Ни одна контора не ответила");
+      if (ad.hint) setError("Котировки не получены: ни одна контора не ответила");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
     } finally {
       setLoading(false);
     }
-  }, [prefs.sports, prefs.books, prefs.minArbProfit, prefs.minEdge, prefs.minBooks, prefs.method]);
+  }, [prefs.sports, prefs.books, prefs.minArbProfit, prefs.minEdge, prefs.minBooks, prefs.method, prefs.dnsMode]);
 
   useEffect(() => {
     load();

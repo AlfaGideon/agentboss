@@ -9,7 +9,8 @@ echo   ==========================================
 echo       DIAGNOSTICS: ACCESS TO BOOKMAKERS
 echo   ==========================================
 echo.
-echo   This checks DNS, TLS and HTTP answers for
+echo   This checks DNS (system, backup DNS and
+echo   DNS-over-HTTPS), TLS and HTTP answers for
 echo   every feed address used by the app.
 echo.
 

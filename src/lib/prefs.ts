@@ -14,6 +14,12 @@ export type Prefs = {
   minBooks: number;
   method: "shin" | "multiplicative";
   autoRefreshSec: number;
+  /**
+   * Как искать адреса контор:
+   *  auto   — системный DNS, а если он не находит — резервные (8.8.8.8, 1.1.1.1, DNS-over-HTTPS);
+   *  system — только системный DNS.
+   */
+  dnsMode: "auto" | "system";
 };
 
 export const DEFAULT_PREFS: Prefs = {
@@ -27,6 +33,7 @@ export const DEFAULT_PREFS: Prefs = {
   minBooks: 3,
   method: "shin",
   autoRefreshSec: 0,
+  dnsMode: "auto",
 };
 
 export function usePrefs() {
@@ -34,6 +41,10 @@ export function usePrefs() {
   const merged = { ...DEFAULT_PREFS, ...prefs };
   return [merged, setPrefs, loaded] as const;
 }
+
+/** Значение параметра dns для API: undefined — режим «автоматически» */
+export const dnsParam = (prefs: Pick<Prefs, "dnsMode">) =>
+  prefs.dnsMode === "system" ? "system" : undefined;
 
 export const qs = (o: Record<string, string | number | undefined>) =>
   Object.entries(o)
