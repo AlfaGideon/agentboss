@@ -23,6 +23,7 @@ const TABS = [
   { id: "parlay", label: "Экспресс" },
   { id: "convert", label: "Конвертер" },
   { id: "margin", label: "Маржа и CLV" },
+  { id: "tax", label: "Налог 13%" },
 ] as const;
 
 export default function CalculatorsPage() {
@@ -50,6 +51,7 @@ export default function CalculatorsPage() {
       {tab === "parlay" && <ParlayCalc />}
       {tab === "convert" && <ConvertCalc />}
       {tab === "margin" && <MarginCalc />}
+      {tab === "tax" && <TaxCalc />}
     </div>
   );
 }
@@ -403,6 +405,78 @@ function MarginCalc() {
         <p className="text-xs text-slate-500">
           Стабильно положительный CLV — самый надёжный индикатор долгосрочной прибыльности,
           важнее короткой серии выигрышей.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TaxCalc() {
+  const [prefs] = usePrefs();
+  const [stake, setStake] = useState(10000);
+  const [odds, setOdds] = useState(2.5);
+  const [deposits, setDeposits] = useState(50000);
+  const [withdrawals, setWithdrawals] = useState(80000);
+
+  const payout = stake * odds;
+  const profit = payout - stake;
+  // Интерактивные ставки: налоговая база = вывод − депозит, удерживает ЦУПИС при выводе
+  const single = payout >= 15000 ? Math.max(0, payout - stake) * 0.13 : 0;
+  const yearBase = Math.max(0, withdrawals - deposits);
+  const yearTax = yearBase * 0.13;
+
+  return (
+    <div className="space-y-5">
+      <div className="card-pad space-y-4">
+        <h3 className="font-medium text-white">НДФЛ с одной ставки</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Сумма ставки" value={stake} onChange={setStake} step="100" />
+          <Field label="Коэффициент" value={odds} onChange={setOdds} />
+        </div>
+        <Result
+          rows={[
+            { label: "Выплата", value: money(payout, prefs.currency) },
+            { label: "Чистый выигрыш", value: money(profit, prefs.currency), tone: "text-good" },
+            {
+              label: "Налог 13%",
+              value: money(single, prefs.currency),
+              tone: single > 0 ? "text-bad" : "text-slate-400",
+            },
+            {
+              label: "На руки",
+              value: money(payout - single, prefs.currency),
+              tone: "text-accent",
+            },
+          ]}
+        />
+        <p className="text-xs text-slate-500">
+          При выплате от 15 000 ₽ налоговым агентом выступает букмекер: он удерживает 13% с разницы
+          между выплатой и суммой ставки. Если выплата меньше 15 000 ₽, декларировать доход нужно
+          самостоятельно по итогам года.
+        </p>
+      </div>
+
+      <div className="card-pad space-y-4">
+        <h3 className="font-medium text-white">Налог за год по выводам (интерактивные ставки)</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Сумма депозитов за год" value={deposits} onChange={setDeposits} step="1000" />
+          <Field label="Сумма выводов за год" value={withdrawals} onChange={setWithdrawals} step="1000" />
+        </div>
+        <Result
+          rows={[
+            { label: "Налоговая база", value: money(yearBase, prefs.currency) },
+            { label: "НДФЛ 13%", value: money(yearTax, prefs.currency), tone: "text-bad" },
+            {
+              label: "Чистыми за год",
+              value: money(yearBase - yearTax, prefs.currency),
+              tone: yearBase > 0 ? "text-good" : "text-slate-400",
+            },
+          ]}
+        />
+        <p className="text-xs text-slate-500">
+          Для интерактивных ставок база считается как «выведено минус внесено» за календарный год.
+          Расчёт ориентировочный: ставка 15% применяется к доходам свыше 5 млн ₽ в год. Итоговые
+          суммы уточняйте в личном кабинете ЦУПИС и в справке 2-НДФЛ от букмекера.
         </p>
       </div>
     </div>

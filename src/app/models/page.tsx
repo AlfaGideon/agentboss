@@ -1,34 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { SportSelect } from "@/components/controls";
+import { SportSelect, SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, fmtTime, pct } from "@/components/ui";
 import { poissonMarkets, impliedProb, kellyFraction } from "@/lib/math";
 import { qs, usePrefs } from "@/lib/prefs";
+import type { MarketView, SportKey } from "@/lib/books/types";
 
-type BestRow = {
-  outcome: string;
-  point?: number;
-  price: number;
-  bookmaker: string;
-  fairProb: number | null;
-};
-
-type EventLite = {
+type Ev = {
   id: string;
-  home_team: string;
-  away_team: string;
-  commence_time: string;
-  summary: { market: string; label: string; best: BestRow[]; overround: number | null }[];
+  league: string;
+  home: string;
+  away: string;
+  startTime: string;
+  bookCount: number;
+  markets: MarketView[];
 };
 
 export default function ModelsPage() {
   const [prefs] = usePrefs();
-  const [sport, setSport] = useState("soccer_epl");
-  const [events, setEvents] = useState<EventLite[]>([]);
-  const [selected, setSelected] = useState<EventLite | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [sport, setSport] = useState<SportKey>("football");
+  const [events, setEvents] = useState<Ev[]>([]);
+  const [sources, setSources] = useState<any[]>([]);
+  const [selected, setSelected] = useState<Ev | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | undefined>();
   const [lh, setLh] = useState(1.5);
   const [la, setLa] = useState(1.2);
 
@@ -36,63 +33,80 @@ export default function ModelsPage() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`/api/odds?${qs({ sport, markets: "h2h,totals", regions: prefs.regions.join(",") })}`);
+      const r = await fetch(`/api/line?${qs({ sport, books: prefs.books.join(","), live: "0" })}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
-      setEvents(d.events || []);
-      setSelected(d.events?.[0] ?? null);
+      const list: Ev[] = (d.events || []).filter((e: Ev) =>
+        e.markets.some((m) => m.market === "moneyline")
+      );
+      setEvents(list);
+      setSources(d.sources || []);
+      setHint(d.hint);
+      setSelected(list[0] ?? null);
+      if (d.hint) setError("Ни одна контора не ответила");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка");
     } finally {
       setLoading(false);
     }
-  }, [sport, prefs.regions]);
+  }, [sport, prefs.books]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Калибровка λ по рыночному тоталу и перевесу фаворита
+  // калибровка λ по рыночному тоталу и линии исхода
   useEffect(() => {
     if (!selected) return;
-    const h2h = selected.summary.find((s) => s.market === "h2h");
-    const totals = selected.summary.find((s) => s.market === "totals");
+    const ml = selected.markets.find((m) => m.market === "moneyline");
+    const totals = selected.markets.filter((m) => m.market.startsWith("total_"));
     let expTotal = 2.6;
-    if (totals?.best?.length) {
-      const lines = totals.best.map((b) => b.point).filter((p): p is number => p != null);
-      if (lines.length) {
-        const mid = lines.sort((a, b) => a - b)[Math.floor(lines.length / 2)];
-        expTotal = mid;
+    if (totals.length) {
+      const lines = totals
+        .map((t) => Number(t.market.replace("total_", "")))
+        .filter((n) => Number.isFinite(n))
+        .sort((a, b) => a - b);
+      // линия, ближайшая к равным коэффициентам — рыночное ожидание
+      let bestDiff = Infinity;
+      for (const t of totals) {
+        const over = t.outcomes.find((o) => o.key.startsWith("over"))?.best.price;
+        const under = t.outcomes.find((o) => o.key.startsWith("under"))?.best.price;
+        if (!over || !under) continue;
+        const diff = Math.abs(over - under);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          expTotal = Number(t.market.replace("total_", ""));
+        }
       }
+      if (!Number.isFinite(expTotal) && lines.length) expTotal = lines[Math.floor(lines.length / 2)];
     }
     let share = 0.5;
-    if (h2h?.best?.length) {
-      const home = h2h.best.find((b) => b.outcome === selected.home_team);
-      const away = h2h.best.find((b) => b.outcome === selected.away_team);
-      if (home && away) {
-        const ph = impliedProb(home.price);
-        const pa = impliedProb(away.price);
+    if (ml) {
+      const h = ml.outcomes.find((o) => o.key === "1")?.best.price;
+      const a = ml.outcomes.find((o) => o.key === "2")?.best.price;
+      if (h && a) {
+        const ph = impliedProb(h);
+        const pa = impliedProb(a);
         share = ph / (ph + pa);
       }
     }
-    const strength = 0.5 + (share - 0.5) * 1.35;
-    setLh(Number((expTotal * Math.min(Math.max(strength, 0.15), 0.85)).toFixed(2)));
-    setLa(Number((expTotal * (1 - Math.min(Math.max(strength, 0.15), 0.85))).toFixed(2)));
+    const strength = Math.min(Math.max(0.5 + (share - 0.5) * 1.35, 0.15), 0.85);
+    setLh(Number((expTotal * strength).toFixed(2)));
+    setLa(Number((expTotal * (1 - strength)).toFixed(2)));
   }, [selected]);
 
   const model = poissonMarkets(lh, la);
-  const h2h = selected?.summary.find((s) => s.market === "h2h");
+  const ml = selected?.markets.find((m) => m.market === "moneyline");
 
-  const compare = (outcome: string, modelProb: number) => {
-    const row = h2h?.best.find((b) => b.outcome === outcome);
-    if (!row) return null;
-    const edge = (row.price * modelProb - 1) * 100;
+  const cmp = (key: string, p: number) => {
+    const o = ml?.outcomes.find((x) => x.key === key);
+    if (!o) return null;
+    const edge = (o.best.price * p - 1) * 100;
     return {
-      price: row.price,
-      bookmaker: row.bookmaker,
-      fair: 1 / modelProb,
+      price: o.best.price,
+      book: o.best.book,
       edge,
-      kelly: kellyFraction(row.price, modelProb) * prefs.kellyFraction * 100,
+      kelly: kellyFraction(o.best.price, p) * prefs.kellyFraction * 100,
     };
   };
 
@@ -100,11 +114,11 @@ export default function ModelsPage() {
     <div className="space-y-5">
       <div className="card-pad grid gap-4 lg:grid-cols-3">
         <div>
-          <label className="label">Лига</label>
+          <label className="label">Вид спорта</label>
           <SportSelect value={sport} onChange={setSport} />
         </div>
         <div className="lg:col-span-2">
-          <label className="label">Матч</label>
+          <label className="label">Матч ({events.length} доступно)</label>
           <select
             className="input"
             value={selected?.id ?? ""}
@@ -113,28 +127,29 @@ export default function ModelsPage() {
           >
             {events.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.home_team} — {e.away_team} ({fmtTime(e.commence_time)})
+                {e.home} — {e.away} ({fmtTime(e.startTime)})
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      {error && <ErrorBox error={error} onRetry={load} />}
-      {loading && <Spinner label="Загружаю матчи и линии…" />}
+      <SourceStatus sources={sources} />
+      {error && <ErrorBox error={error} hint={hint} onRetry={load} />}
+      {loading && <Spinner label="Загружаю матчи…" />}
 
       {selected && !loading && (
         <>
           <div className="card-pad space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-medium text-white">
-                Модель Пуассона: {selected.home_team} — {selected.away_team}
+                Модель Пуассона: {selected.home} — {selected.away}
               </h3>
-              <Badge tone="accent">λ калибруются по рыночному тоталу и линии 1X2</Badge>
+              <Badge tone="accent">λ калиброваны по линии {selected.bookCount} контор</Badge>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <label className="label">xG хозяев (λ)</label>
+                <label className="label">Ожидаемые голы хозяев</label>
                 <input
                   type="range"
                   min={0.2}
@@ -147,7 +162,7 @@ export default function ModelsPage() {
                 <p className="text-sm tabular-nums text-slate-300">{lh.toFixed(2)}</p>
               </div>
               <div>
-                <label className="label">xG гостей (λ)</label>
+                <label className="label">Ожидаемые голы гостей</label>
                 <input
                   type="range"
                   min={0.2}
@@ -165,53 +180,43 @@ export default function ModelsPage() {
               </div>
               <div className="rounded-lg border border-edge bg-slate-900/60 p-3">
                 <p className="text-xs text-slate-500">Обе забьют</p>
-                <p className="text-xl font-semibold text-slate-100">
-                  {(model.btts * 100).toFixed(1)}%
-                </p>
+                <p className="text-xl font-semibold text-slate-100">{(model.btts * 100).toFixed(1)}%</p>
               </div>
             </div>
           </div>
 
           <div className="card">
             <div className="border-b border-edge px-4 py-3">
-              <h3 className="font-medium text-white">Модель против рынка</h3>
+              <h3 className="font-medium text-white">Модель против линии букмекеров</h3>
             </div>
             <div className="table-wrap m-4">
               <table className="w-full">
                 <thead className="bg-slate-900/60">
                   <tr>
                     <th className="th">Исход</th>
-                    <th className="th">Модель, %</th>
-                    <th className="th">Справедливый коэф.</th>
-                    <th className="th">Лучшая цена рынка</th>
-                    <th className="th">Букмекер</th>
+                    <th className="th">Модель</th>
+                    <th className="th">Справедливый</th>
+                    <th className="th">Лучшая цена</th>
+                    <th className="th">Контора</th>
                     <th className="th">Перевес</th>
                     <th className="th">Kelly</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-edge">
                   {[
-                    { name: selected.home_team, p: model.home },
-                    { name: "Draw", p: model.draw },
-                    { name: selected.away_team, p: model.away },
-                  ].map((row) => {
-                    const c = compare(row.name, row.p);
+                    { key: "1", name: selected.home, p: model.home },
+                    { key: "X", name: "Ничья", p: model.draw },
+                    { key: "2", name: selected.away, p: model.away },
+                  ].map((r) => {
+                    const c = cmp(r.key, r.p);
                     return (
-                      <tr key={row.name}>
-                        <td className="td text-slate-100">
-                          {row.name === "Draw" ? "Ничья" : row.name}
-                        </td>
-                        <td className="td tabular-nums">{(row.p * 100).toFixed(1)}%</td>
-                        <td className="td tabular-nums text-slate-300">{(1 / row.p).toFixed(2)}</td>
-                        <td className="td tabular-nums text-accent">
-                          {c ? c.price.toFixed(2) : "—"}
-                        </td>
-                        <td className="td text-slate-400">{c?.bookmaker ?? "—"}</td>
-                        <td
-                          className={`td tabular-nums ${
-                            c && c.edge > 0 ? "text-good" : "text-slate-500"
-                          }`}
-                        >
+                      <tr key={r.key}>
+                        <td className="td text-slate-100">{r.name}</td>
+                        <td className="td tabular-nums">{(r.p * 100).toFixed(1)}%</td>
+                        <td className="td tabular-nums text-slate-300">{(1 / r.p).toFixed(2)}</td>
+                        <td className="td tabular-nums text-good">{c ? c.price.toFixed(2) : "—"}</td>
+                        <td className="td text-slate-400">{c?.book ?? "—"}</td>
+                        <td className={`td tabular-nums ${c && c.edge > 0 ? "text-good" : "text-slate-500"}`}>
                           {c ? pct(c.edge) : "—"}
                         </td>
                         <td className="td tabular-nums text-slate-300">
@@ -227,38 +232,29 @@ export default function ModelsPage() {
 
           <div className="grid gap-5 lg:grid-cols-2">
             <div className="card-pad">
-              <h3 className="mb-3 font-medium text-white">Вероятности тоталов</h3>
+              <h3 className="mb-3 font-medium text-white">Тоталы по модели</h3>
               <div className="space-y-2">
-                {Object.entries(model.totals).map(([k, v]) => {
-                  const line = k.replace("over", "");
-                  return (
-                    <div key={k} className="flex items-center gap-3">
-                      <span className="w-24 text-xs text-slate-400">ТБ {line}</span>
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-                        <div
-                          className="h-full rounded-full bg-accent/70"
-                          style={{ width: `${v * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-16 text-right text-xs tabular-nums text-slate-300">
-                        {(v * 100).toFixed(1)}%
-                      </span>
-                      <span className="w-14 text-right text-xs tabular-nums text-slate-500">
-                        {(1 / v).toFixed(2)}
-                      </span>
+                {Object.entries(model.totals).map(([k, v]) => (
+                  <div key={k} className="flex items-center gap-3">
+                    <span className="w-20 text-xs text-slate-400">ТБ {k.replace("over", "")}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                      <div className="h-full rounded-full bg-accent/70" style={{ width: `${v * 100}%` }} />
                     </div>
-                  );
-                })}
+                    <span className="w-14 text-right text-xs tabular-nums text-slate-300">
+                      {(v * 100).toFixed(1)}%
+                    </span>
+                    <span className="w-12 text-right text-xs tabular-nums text-slate-500">
+                      {(1 / v).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="card-pad">
               <h3 className="mb-3 font-medium text-white">Вероятные счета</h3>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {model.topScores.map((s) => (
-                  <div
-                    key={s.score}
-                    className="rounded-lg border border-edge bg-slate-900/60 p-2 text-center"
-                  >
+                  <div key={s.score} className="rounded-lg border border-edge bg-slate-900/60 p-2 text-center">
                     <p className="text-base font-semibold text-slate-100">{s.score}</p>
                     <p className="text-xs text-slate-500">{(s.p * 100).toFixed(1)}%</p>
                     <p className="text-[10px] text-slate-600">коэф {(1 / s.p).toFixed(1)}</p>
@@ -269,9 +265,8 @@ export default function ModelsPage() {
           </div>
 
           <p className="text-xs text-slate-500">
-            Модель предполагает независимость голов команд (чистый Пуассон) и занижает вероятность
-            ничьих в низовых матчах. Используйте её как второе мнение к рыночному консенсусу, а не
-            как единственный источник решения.
+            Чистый Пуассон предполагает независимость голов и занижает вероятность ничьих в низовых
+            матчах. Используйте как второе мнение к рыночному консенсусу.
           </p>
         </>
       )}

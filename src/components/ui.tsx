@@ -11,37 +11,24 @@ export function Spinner({ label = "Загрузка данных…" }: { label?
   );
 }
 
-export function ErrorBox({ error, onRetry }: { error: string; onRetry?: () => void }) {
-  const needsKey = /ODDS_API_KEY|401|ключ/i.test(error);
+export function ErrorBox({
+  error,
+  hint,
+  onRetry,
+}: {
+  error: string;
+  hint?: string;
+  onRetry?: () => void;
+}) {
   return (
     <div className="card-pad border-bad/40 bg-bad/5">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 text-bad">⚠</span>
         <div className="flex-1">
           <p className="text-sm text-slate-200">{error}</p>
-          {needsKey && (
+          {hint && (
             <div className="mt-3 rounded-lg border border-edge bg-slate-900/60 p-3 text-xs text-slate-400">
-              <p className="mb-2 text-slate-300">Подключение реальных данных:</p>
-              <ol className="list-decimal space-y-1 pl-4">
-                <li>
-                  Получите бесплатный ключ на{" "}
-                  <a
-                    className="text-accent underline"
-                    href="https://the-odds-api.com/"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    the-odds-api.com
-                  </a>
-                </li>
-                <li>
-                  Создайте файл <code className="text-accent">.env.local</code> в корне проекта
-                </li>
-                <li>
-                  Добавьте строку <code className="text-accent">ODDS_API_KEY=ваш_ключ</code>
-                </li>
-                <li>Перезапустите приложение</li>
-              </ol>
+              {hint}
             </div>
           )}
           {onRetry && (
@@ -64,7 +51,7 @@ export function Stat({
   label: string;
   value: string;
   sub?: string;
-  tone?: "neutral" | "good" | "bad" | "warn";
+  tone?: "neutral" | "good" | "bad" | "warn" | "accent";
 }) {
   const toneCls =
     tone === "good"
@@ -73,6 +60,8 @@ export function Stat({
       ? "text-bad"
       : tone === "warn"
       ? "text-warn"
+      : tone === "accent"
+      ? "text-accent"
       : "text-slate-100";
   return (
     <div className="card-pad">
@@ -139,11 +128,11 @@ export function fmtTime(iso: string) {
 
 export function timeUntil(iso: string) {
   const diff = +new Date(iso) - Date.now();
-  if (diff < 0) return "идёт / завершён";
+  if (diff < 0) return "идёт / начался";
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
-  if (h > 24) return `через ${Math.floor(h / 24)} д`;
-  return h > 0 ? `через ${h} ч ${m} м` : `через ${m} м`;
+  if (h > 24) return `через ${Math.floor(h / 24)} дн.`;
+  return h > 0 ? `через ${h} ч ${m} мин` : `через ${m} мин`;
 }
 
 export const money = (n: number, cur = "₽") =>

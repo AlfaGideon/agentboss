@@ -1,11 +1,11 @@
 "use client";
 
 import { useLocalStorage } from "@/components/ui";
+import type { SportKey } from "@/lib/books/types";
 
 export type Prefs = {
-  regions: string[];
-  sports: string[];
-  markets: string[];
+  books: string[];
+  sports: SportKey[];
   bankroll: number;
   currency: string;
   kellyFraction: number;
@@ -17,21 +17,20 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
-  regions: ["eu", "uk"],
-  sports: ["soccer_epl", "basketball_nba"],
-  markets: ["h2h"],
+  books: ["fonbet", "ligastavok", "winline", "olimp"],
+  sports: ["football"],
   bankroll: 100000,
   currency: "₽",
   kellyFraction: 0.25,
   minEdge: 2,
   minArbProfit: 0.5,
-  minBooks: 4,
+  minBooks: 3,
   method: "shin",
   autoRefreshSec: 0,
 };
 
 export function usePrefs() {
-  const [prefs, setPrefs, loaded] = useLocalStorage<Prefs>("betscope.prefs", DEFAULT_PREFS);
+  const [prefs, setPrefs, loaded] = useLocalStorage<Prefs>("betscope.prefs.ru", DEFAULT_PREFS);
   const merged = { ...DEFAULT_PREFS, ...prefs };
   return [merged, setPrefs, loaded] as const;
 }

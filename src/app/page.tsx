@@ -3,29 +3,30 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePrefs, qs } from "@/lib/prefs";
+import { SourceStatus } from "@/components/controls";
 import { Badge, ErrorBox, Spinner, Stat, fmtTime, pct, timeUntil } from "@/components/ui";
 import { bankrollStats } from "@/lib/math";
-import type { ArbOpportunity, TrackedBet, ValueBet } from "@/lib/types";
+import { sportTitle } from "@/lib/books/types";
+import type { TrackedBet } from "@/lib/types";
 
 export default function Dashboard() {
   const [prefs] = usePrefs();
-  const [arbs, setArbs] = useState<ArbOpportunity[]>([]);
-  const [value, setValue] = useState<ValueBet[]>([]);
+  const [arbs, setArbs] = useState<any[]>([]);
+  const [value, setValue] = useState<any[]>([]);
+  const [sources, setSources] = useState<any[]>([]);
   const [bets, setBets] = useState<TrackedBet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | undefined>();
   const [scanned, setScanned] = useState(0);
+  const [comparable, setComparable] = useState(0);
   const [updated, setUpdated] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const base = {
-        sports: prefs.sports.join(","),
-        markets: prefs.markets.join(","),
-        regions: prefs.regions.join(","),
-      };
+      const base = { sports: prefs.sports.join(","), books: prefs.books.join(",") };
       const [a, v] = await Promise.all([
         fetch(`/api/arbs?${qs({ ...base, minProfit: prefs.minArbProfit })}`),
         fetch(
@@ -43,14 +44,18 @@ export default function Dashboard() {
       if (!v.ok) throw new Error(vd.error);
       setArbs(ad.arbs || []);
       setValue(vd.bets || []);
+      setSources(ad.sources || []);
       setScanned(ad.eventsScanned || 0);
-      setUpdated(new Date().toISOString());
+      setComparable(ad.comparable || 0);
+      setHint(ad.hint);
+      setUpdated(ad.fetchedAt);
+      if (ad.hint) setError("Ни одна контора не ответила");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
     } finally {
       setLoading(false);
     }
-  }, [prefs.sports, prefs.markets, prefs.regions, prefs.minArbProfit, prefs.minEdge, prefs.minBooks, prefs.method]);
+  }, [prefs.sports, prefs.books, prefs.minArbProfit, prefs.minEdge, prefs.minBooks, prefs.method]);
 
   useEffect(() => {
     load();
@@ -72,23 +77,20 @@ export default function Dashboard() {
   }, [prefs.autoRefreshSec, load]);
 
   const stats = bankrollStats(bets);
-  const topEdge = value[0]?.edgePct ?? 0;
-  const topArb = arbs[0]?.profitPct ?? 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-white">Обзор рынка</h2>
+          <h2 className="text-xl font-semibold text-white">Обзор российского рынка ставок</h2>
           <p className="text-sm text-slate-500">
-            {prefs.sports.length} лиг · рынки: {prefs.markets.join(", ")} · регионы:{" "}
-            {prefs.regions.join(", ")}
+            {prefs.sports.map(sportTitle).join(", ")} · {prefs.books.length} контор
             {updated && ` · обновлено ${fmtTime(updated)}`}
           </p>
         </div>
         <div className="flex gap-2">
           <Link href="/settings" className="btn">
-            Настройки сканера
+            Настройки
           </Link>
           <button className="btn-primary" onClick={load} disabled={loading}>
             {loading ? "Сканирую…" : "Обновить"}
@@ -96,30 +98,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {error && <ErrorBox error={error} onRetry={load} />}
+      <SourceStatus sources={sources} />
+      {error && <ErrorBox error={error} hint={hint} onRetry={load} />}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <Stat label="Матчей в линии" value={loading ? "…" : String(scanned)} />
         <Stat
-          label="Событий просканировано"
-          value={loading ? "…" : String(scanned)}
-          sub="актуальные котировки"
+          label="Сравнимо"
+          value={loading ? "…" : String(comparable)}
+          sub="есть в 2+ конторах"
+          tone="accent"
         />
         <Stat
-          label="Найдено вилок"
+          label="Вилок"
           value={loading ? "…" : String(arbs.length)}
-          sub={arbs.length ? `лучшая ${pct(topArb)}` : "нет возможностей"}
+          sub={arbs.length ? `лучшая ${pct(arbs[0].profitPct)}` : "нет"}
           tone={arbs.length ? "good" : "neutral"}
         />
         <Stat
           label="Value-ставок"
           value={loading ? "…" : String(value.length)}
-          sub={value.length ? `макс. перевес ${pct(topEdge)}` : "нет перевеса"}
+          sub={value.length ? `макс. ${pct(value[0].edgePct)}` : "нет перевеса"}
           tone={value.length ? "warn" : "neutral"}
         />
         <Stat
           label="ROI моих ставок"
           value={stats.count ? pct(stats.roi) : "—"}
-          sub={`${stats.count} ставок · P/L ${stats.profit.toFixed(0)} ${prefs.currency}`}
+          sub={`${stats.count} ставок`}
           tone={stats.profit > 0 ? "good" : stats.profit < 0 ? "bad" : "neutral"}
         />
       </div>
@@ -127,7 +132,7 @@ export default function Dashboard() {
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="card">
           <div className="flex items-center justify-between border-b border-edge px-4 py-3">
-            <h3 className="font-medium text-white">Топ арбитражных возможностей</h3>
+            <h3 className="font-medium text-white">Арбитражные ситуации</h3>
             <Link href="/arbitrage" className="text-xs text-accent underline">
               все вилки →
             </Link>
@@ -135,26 +140,27 @@ export default function Dashboard() {
           {loading ? (
             <Spinner />
           ) : arbs.length === 0 ? (
-            <Empty text="Вилок по текущим фильтрам не найдено. Расширьте список лиг или регионов." />
+            <p className="p-6 text-sm text-slate-500">
+              Вилок между выбранными конторами сейчас нет.
+            </p>
           ) : (
             <ul className="divide-y divide-edge">
               {arbs.slice(0, 5).map((a, i) => (
-                <li key={`${a.eventId}-${a.market}-${i}`} className="px-4 py-3">
+                <li key={i} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm text-slate-100">{a.match}</p>
                       <p className="text-xs text-slate-500">
-                        {a.sportTitle} · {a.marketLabel} · {timeUntil(a.commenceTime)}
+                        {a.marketLabel} · {timeUntil(a.startTime)}
                       </p>
                     </div>
                     <Badge tone="good">{pct(a.profitPct)}</Badge>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {a.legs.map((l, j) => (
+                    {a.legs.map((l: any, j: number) => (
                       <span key={j} className="chip">
-                        {l.outcome}
-                        {l.point !== undefined ? ` ${l.point}` : ""} @{l.price.toFixed(2)} ·{" "}
-                        <span className="text-slate-400">{l.bookmaker}</span>
+                        {l.label} @{l.price.toFixed(2)} ·{" "}
+                        <span className="text-slate-400">{l.book}</span>
                       </span>
                     ))}
                   </div>
@@ -174,18 +180,16 @@ export default function Dashboard() {
           {loading ? (
             <Spinner />
           ) : value.length === 0 ? (
-            <Empty text="Ставок с положительным ожиданием не найдено. Снизьте порог перевеса в настройках." />
+            <p className="p-6 text-sm text-slate-500">Ставок с перевесом не найдено.</p>
           ) : (
             <ul className="divide-y divide-edge">
               {value.slice(0, 5).map((v, i) => (
-                <li key={`${v.eventId}-${v.outcome}-${i}`} className="px-4 py-3">
+                <li key={i} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm text-slate-100">{v.match}</p>
                       <p className="text-xs text-slate-500">
-                        {v.outcome}
-                        {v.point !== undefined ? ` ${v.point}` : ""} · {v.bookmaker} @
-                        {v.price.toFixed(2)}
+                        {v.outcome} · {v.book} @{v.price.toFixed(2)}
                       </p>
                     </div>
                     <div className="text-right">
@@ -204,36 +208,20 @@ export default function Dashboard() {
 
       <section className="card">
         <div className="border-b border-edge px-4 py-3">
-          <h3 className="font-medium text-white">Быстрые действия</h3>
+          <h3 className="font-medium text-white">Разделы</h3>
         </div>
         <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <QuickLink
-            href="/odds"
-            title="Сравнить линии"
-            desc="Лучшая цена по каждому исходу среди всех букмекеров"
-          />
-          <QuickLink
-            href="/models"
-            title="Модель матча"
-            desc="Пуассон, ожидаемые голы, точный счёт и справедливые коэффициенты"
-          />
-          <QuickLink
-            href="/calculators"
-            title="Калькуляторы"
-            desc="Kelly, хедж, дач-беттинг, экспресс, конвертер коэффициентов"
-          />
-          <QuickLink
-            href="/tracker"
-            title="Учёт ставок"
-            desc="ROI, банкролл, разбивка по букмекерам и рынкам"
-          />
+          <Quick href="/line" title="Сравнение линий" desc="Лучшая цена по каждому исходу среди российских контор" />
+          <Quick href="/models" title="Модель матча" desc="Пуассон, тоталы, точный счёт против линии букмекера" />
+          <Quick href="/calculators" title="Калькуляторы" desc="Kelly, вилка, хедж, экспресс, маржа, налог 13%" />
+          <Quick href="/tracker" title="Мои ставки" desc="ROI, банкролл, разбивка по конторам" />
         </div>
       </section>
     </div>
   );
 }
 
-function QuickLink({ href, title, desc }: { href: string; title: string; desc: string }) {
+function Quick({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
     <Link
       href={href}
@@ -243,8 +231,4 @@ function QuickLink({ href, title, desc }: { href: string; title: string; desc: s
       <p className="mt-1 text-xs text-slate-500">{desc}</p>
     </Link>
   );
-}
-
-function Empty({ text }: { text: string }) {
-  return <p className="p-6 text-sm text-slate-500">{text}</p>;
 }

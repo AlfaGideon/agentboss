@@ -1,34 +1,39 @@
 import { NextResponse } from "next/server";
-import { getOdds } from "@/lib/odds-api";
-import { findValueBets } from "@/lib/math";
-import { errorResponse } from "../_util";
+import { fetchAllBooks, mergeEvents } from "@/lib/books";
+import { findRuValue } from "@/lib/books/analyze";
+import type { SportKey } from "@/lib/books/types";
+import { fail, NO_BOOKS_HINT } from "../_util";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
-  const sports = (sp.get("sports") || "soccer_epl").split(",").filter(Boolean).slice(0, 6);
-  const markets = (sp.get("markets") || "h2h").split(",").filter(Boolean);
+  const sports = (sp.get("sports") || "football").split(",").filter(Boolean) as SportKey[];
+  const books = (sp.get("books") || "fonbet,ligastavok,winline,olimp").split(",").filter(Boolean);
   const minEdge = Number(sp.get("minEdge") ?? 2);
-  const minBooks = Number(sp.get("minBooks") ?? 4);
+  const minBooks = Number(sp.get("minBooks") ?? 3);
   const method = (sp.get("method") as "shin" | "multiplicative") || "shin";
-  const regions = sp.get("regions") || undefined;
 
   try {
-    const results = await Promise.allSettled(
-      sports.map((s) => getOdds({ sport: s, markets: markets.join(","), regions }))
+    const perSport = await Promise.all(
+      sports.slice(0, 4).map(async (s) => {
+        const results = await fetchAllBooks(s, books);
+        return { results, merged: mergeEvents(results) };
+      })
     );
-    const events = results.flatMap((r) => (r.status === "fulfilled" ? r.value.data : []));
-    const firstOk = results.find((r) => r.status === "fulfilled");
-    if (!firstOk && results.length) throw (results[0] as PromiseRejectedResult).reason;
-    const quota = firstOk && firstOk.status === "fulfilled" ? firstOk.value.quota : null;
+    const merged = perSport.flatMap((p) => p.merged);
+    const anyOk = perSport.some((p) => p.results.some((r) => r.ok && r.events.length));
+    const sources = perSport[0]?.results ?? [];
+
     return NextResponse.json({
-      bets: findValueBets(events, markets, { minEdgePct: minEdge, minBooks, method }),
-      eventsScanned: events.length,
-      quota,
+      bets: findRuValue(merged, { minEdge, minBooks, method }),
+      eventsScanned: merged.length,
+      comparable: merged.filter((m) => m.books.length >= minBooks).length,
+      sources: sources.map((r) => ({ book: r.bookTitle, key: r.bookKey, ok: r.ok, error: r.error })),
+      hint: anyOk ? undefined : NO_BOOKS_HINT,
       fetchedAt: new Date().toISOString(),
     });
   } catch (e) {
-    return errorResponse(e);
+    return fail(e);
   }
 }

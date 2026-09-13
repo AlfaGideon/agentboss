@@ -6,21 +6,16 @@ import { useEffect, useState } from "react";
 
 const NAV = [
   { href: "/", label: "Обзор", icon: "◧" },
-  { href: "/odds", label: "Сравнение линий", icon: "≡" },
+  { href: "/line", label: "Сравнение линий", icon: "≡" },
   { href: "/arbitrage", label: "Вилки", icon: "⇄" },
   { href: "/value", label: "Value-беты", icon: "◆" },
   { href: "/models", label: "Модели", icon: "∑" },
   { href: "/calculators", label: "Калькуляторы", icon: "🧮" },
   { href: "/tracker", label: "Мои ставки", icon: "▤" },
-  { href: "/scores", label: "Результаты", icon: "⚑" },
   { href: "/settings", label: "Настройки", icon: "⚙" },
 ];
 
-type Status = {
-  connected: boolean;
-  quota?: { remaining: number | null; used: number | null };
-  error?: string;
-};
+type Status = { books: { key: string; title: string }[] };
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -28,11 +23,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/status")
+    fetch("/api/books")
       .then((r) => r.json())
       .then((d) => setStatus(d))
-      .catch(() => setStatus({ connected: false, error: "нет связи" }));
-  }, [pathname]);
+      .catch(() => setStatus({ books: [] }));
+  }, []);
 
   return (
     <div className="min-h-screen lg:flex">
@@ -73,31 +68,18 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="mx-3 mt-4 rounded-lg border border-edge bg-slate-900/60 p-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${
-                status?.connected ? "bg-good" : "bg-bad"
-              } ${status?.connected ? "animate-pulse" : ""}`}
-            />
-            <span className="text-slate-300">
-              {status === null
-                ? "проверка API…"
-                : status.connected
-                ? "The Odds API онлайн"
-                : "API не подключён"}
-            </span>
-          </div>
-          {status?.quota?.remaining != null && (
-            <p className="mt-2 text-slate-500">
-              Запросов осталось:{" "}
-              <span className="text-slate-300 tabular-nums">{status.quota.remaining}</span>
-            </p>
-          )}
-          {!status?.connected && status !== null && (
-            <Link href="/settings" className="mt-2 block text-accent underline">
-              Подключить ключ
-            </Link>
-          )}
+          <p className="mb-2 text-slate-400">Источники котировок</p>
+          <ul className="space-y-1">
+            {(status?.books ?? []).map((b) => (
+              <li key={b.key} className="flex items-center gap-2 text-slate-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                {b.title}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-600">
+            Линии берутся напрямую с сайтов букмекеров, лицензированных в РФ
+          </p>
         </div>
       </aside>
 
@@ -118,8 +100,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               ?.label ?? "BetScope"}
           </h1>
           <div className="ml-auto hidden items-center gap-2 text-xs text-slate-500 sm:flex">
-            <span className="chip">данные: The Odds API</span>
-            <span className="chip">режим: только реальные котировки</span>
+            <span className="chip">российские букмекеры</span>
+            <span className="chip">только реальные котировки</span>
           </div>
         </header>
         <main className="p-4 lg:p-8">{children}</main>
