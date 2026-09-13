@@ -3,6 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM Node 22+ так доверяет системному хранилищу корневых сертификатов Windows,
 REM а в нём как раз лежат сертификаты антивирусов, перехватывающих HTTPS.
 set "NODE_USE_SYSTEM_CA=1"
+set "NODE_TLS_REJECT_UNAUTHORIZED=0"
 title Ставка PRO - анализ линий букмекеров
 cd /d "%~dp0"
 cls
