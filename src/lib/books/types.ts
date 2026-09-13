@@ -21,6 +21,18 @@ export const SPORTS: { key: SportKey; title: string }[] = [
   { key: "esports", title: "Киберспорт" },
 ];
 
+/** Конторы сканера: только те, у кого есть официальный публичный фид линии */
+export const BOOK_LIST: { key: string; title: string }[] = [
+  { key: "fonbet", title: "Фонбет" },
+  { key: "ligastavok", title: "Лига Ставок" },
+  { key: "leon", title: "Леон" },
+  { key: "olimp", title: "Олимп" },
+  { key: "marathon", title: "Марафон" },
+  { key: "pari", title: "ПАРИ" },
+  { key: "bettery", title: "Беттери" },
+  { key: "zenit", title: "Зенит" },
+];
+
 export const sportTitle = (k: string) => SPORTS.find((s) => s.key === k)?.title ?? k;
 
 /** Исход рынка «Победитель» */

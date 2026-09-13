@@ -5,6 +5,18 @@ import { DEFAULT_PREFS, usePrefs, qs, dnsParam } from "@/lib/prefs";
 import { BookToggle, SportToggle, SourceStatus, BOOKS } from "@/components/controls";
 import { Spinner } from "@/components/ui";
 
+/** чем именно читаем линию каждой конторы */
+const SOURCE_DESC: Record<string, string> = {
+  fonbet: "полный фид линии currentLine + платформа bk6bba (прематч и лайв)",
+  ligastavok: "официальное REST-API витрины lds-api-sites.ligastavok.ru",
+  leon: "официальное REST-API leon.ru/api-2 (прематч и лайв)",
+  olimp: "официальное REST-API olimp.bet/api/v4 (прематч и лайв)",
+  marathon: "фид платформы линии tf39be-resources.com (прематч и лайв)",
+  pari: "фид платформы линии pb06e2-resources.com (прематч и лайв)",
+  bettery: "фид платформы линии at58f5-resources.com (прематч и лайв)",
+  zenit: "AJAX-фид линии zenit.win (прематч и лайв)",
+};
+
 export default function SettingsPage() {
   const [prefs, setPrefs] = usePrefs();
   const [checking, setChecking] = useState(false);
@@ -34,15 +46,18 @@ export default function SettingsPage() {
       <section className="card-pad space-y-4">
         <h3 className="font-medium text-white">Источники котировок</h3>
         <p className="text-sm text-slate-400">
-          Приложение обращается напрямую к публичным линиям российских букмекеров: ни ключей API,
-          ни регистрации не нужно. Адреса контор ищутся своим резолвером — если провайдерский DNS
-          их не находит, подключаются резервные (8.8.8.8, 1.1.1.1, 77.88.8.8) и DNS-over-HTTPS.
+          Приложение читает официальные публичные фиды линий российских букмекеров напрямую — те
+          же данные, которыми пользуются сайты самих контор: ни ключей, ни регистрации. Прематч и
+          лайв, вся линия целиком. Адреса ищутся своим резолвером — если провайдерский DNS их не
+          находит, подключаются резервные (8.8.8.8, 1.1.1.1, 77.88.8.8) и DNS-over-HTTPS.
         </p>
         <ul className="grid gap-2 sm:grid-cols-2">
           {BOOKS.map((b) => (
             <li key={b.key} className="rounded-lg border border-edge bg-slate-900/60 p-3 text-sm">
               <p className="text-slate-100">{b.title}</p>
-              <p className="text-xs text-slate-500">публичный фид линии, лицензия ФНС РФ</p>
+              <p className="text-xs text-slate-500">
+                {SOURCE_DESC[b.key] ?? "официальный публичный фид линии, лицензия ФНС РФ"}
+              </p>
             </li>
           ))}
         </ul>
@@ -115,7 +130,7 @@ export default function SettingsPage() {
       <section className="card-pad space-y-5">
         <h3 className="font-medium text-white">Параметры сканера</h3>
         <div>
-          <label className="label">Виды спорта (до 4 одновременно)</label>
+          <label className="label">Виды спорта (можно выбрать все)</label>
           <SportToggle value={prefs.sports} onChange={(s) => setPrefs({ ...prefs, sports: s })} />
         </div>
         <div>

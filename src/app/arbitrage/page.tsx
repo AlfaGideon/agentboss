@@ -76,7 +76,7 @@ export default function ArbitragePage() {
       <div className="card-pad grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <div>
-            <label className="label">Виды спорта (до 4)</label>
+            <label className="label">Виды спорта (все доступны)</label>
             <SportToggle value={prefs.sports} onChange={(s) => setPrefs({ ...prefs, sports: s })} />
           </div>
           <div>

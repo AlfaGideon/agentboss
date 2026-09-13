@@ -33,6 +33,7 @@ export default function LinePage() {
   const [liveFilter, setLiveFilter] = useState<"all" | "1" | "0">("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [updated, setUpdated] = useState<string | null>(null);
+  const [visible, setVisible] = useState(60);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,6 +45,7 @@ export default function LinePage() {
           books: prefs.books.join(","),
           method: prefs.method,
           live: liveFilter === "all" ? undefined : liveFilter,
+          days: prefs.lineDays || undefined,
           dns: dnsParam(prefs),
         })}`
       );
@@ -59,7 +61,7 @@ export default function LinePage() {
     } finally {
       setLoading(false);
     }
-  }, [sport, prefs.books, prefs.method, liveFilter]);
+  }, [sport, prefs.books, prefs.method, liveFilter, prefs.lineDays]);
 
   useEffect(() => {
     load();
@@ -110,6 +112,17 @@ export default function LinePage() {
             <option value="0">Только прематч</option>
             <option value="1">Только лайв</option>
           </select>
+          <select
+            className="input max-w-[190px]"
+            value={prefs.lineDays}
+            onChange={(e) => setPrefs({ ...prefs, lineDays: Number(e.target.value) })}
+          >
+            <option value={1}>Сегодня и позже</option>
+            <option value={3}>На 3 дня</option>
+            <option value={7}>На неделю</option>
+            <option value={30}>На месяц</option>
+            <option value={0}>Вся линия</option>
+          </select>
           <label className="flex items-center gap-2 text-sm text-slate-400">
             <input
               type="checkbox"
@@ -132,18 +145,19 @@ export default function LinePage() {
 
       {!loading && !error && filtered.length === 0 && (
         <p className="card-pad text-sm text-slate-500">
-          Матчей не найдено. Снимите галку «только матчи в 2+ конторах» или выберите другой вид
-          спорта.
+          Матчей не найдено. Снимите галку «только матчи в 2+ конторах», выберите другой вид спорта
+          или расширьте период («вся линия»).
         </p>
       )}
 
       <p className="text-xs text-slate-500">
-        Показано {filtered.length} матчей. Зелёным отмечена лучшая цена по исходу среди выбранных
-        контор.
+        Показано {Math.min(visible, filtered.length)} из {filtered.length} матчей
+        {prefs.lineDays ? " в выбранном периоде" : " всей линии"}. Зелёным отмечена лучшая цена по
+        исходу среди выбранных контор.
       </p>
 
       <div className="space-y-4">
-        {filtered.slice(0, 60).map((ev) => {
+        {filtered.slice(0, visible).map((ev) => {
           const open = openId === ev.id;
           const main = ev.markets.find((m) => m.market === "moneyline");
           return (
@@ -182,6 +196,12 @@ export default function LinePage() {
           );
         })}
       </div>
+
+      {visible < filtered.length && (
+        <button className="btn w-full" onClick={() => setVisible((v) => v + 100)}>
+          Показать ещё {Math.min(100, filtered.length - visible)} матчей
+        </button>
+      )}
     </div>
   );
 }

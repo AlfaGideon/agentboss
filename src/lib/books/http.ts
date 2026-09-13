@@ -35,6 +35,10 @@ export type JsonOptions = {
   retries?: number;
   /** запретить резервный DNS (нужен, например, чтобы проверить только системный) */
   noDnsFallback?: boolean;
+  /** метод запроса: POST нужен Лиге Ставок (eventsList) */
+  method?: "GET" | "POST";
+  /** тело запроса для POST */
+  body?: string;
 };
 
 const hostOf = (url: string) => {
@@ -73,6 +77,8 @@ export async function getJson<T>(
         timeoutMs,
         signal,
         noDnsFallback: opts.noDnsFallback,
+        method: opts.method,
+        body: opts.body,
       });
 
       if (res.status < 200 || res.status >= 300) {
@@ -121,6 +127,22 @@ export function forgetEndpoint(key: string) {
 }
 
 /**
+ * Кэш распарсенного ответа и очередь параллельных запросов одного фида.
+ *
+ * Скан по нескольким видам спорта спрашивает у конторы одну и ту же полную
+ * линию (Фонбет, Марафон, ПАРИ, Олимп, Леон отдают всё сразу). Чтобы не качать
+ * мегабайтный фид восемь раз, ответ хранится DATA_TTL_MS, а одновременные
+ * обращения ждут один и тот же запрос.
+ */
+const DATA_TTL_MS = 20 * 1000;
+const dataCache = new Map<string, { data: unknown; url: string; dnsVia?: string; insecure?: boolean; ts: number }>();
+const inFlight = new Map<string, Promise<Loaded<unknown>>>();
+
+export function forgetFeeds() {
+  dataCache.clear();
+}
+
+/**
  * Опрос нескольких адресов-зеркал одной конторы.
  *
  * Адреса проверяются параллельно, берётся первый, который ответил валидными
@@ -141,6 +163,10 @@ export async function getJsonFirst<T>(
     isValid?: (d: T) => boolean;
     cacheKey?: string;
     noDnsFallback?: boolean;
+    method?: "GET" | "POST";
+    body?: string;
+    /** не использовать кэш данных (для принудительного обновления) */
+    noDataCache?: boolean;
   } = {}
 ): Promise<Loaded<T>> {
   const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -154,6 +180,26 @@ export async function getJsonFirst<T>(
     return true;
   };
 
+  // 0. недавний ответ того же фида — не качаем повторно
+  const cacheKey = opts.cacheKey
+    ? opts.method === "POST"
+      ? `${opts.cacheKey}#${opts.body ?? ""}`
+      : opts.cacheKey
+    : undefined;
+  if (cacheKey && !opts.noDataCache) {
+    const hit = dataCache.get(cacheKey);
+    if (hit && Date.now() - hit.ts < DATA_TTL_MS) {
+      return { data: hit.data as T, url: hit.url, dnsVia: hit.dnsVia, insecure: hit.insecure, tried: [] };
+    }
+    // параллельный запрос того же фида уже идёт — ждём его, а не плодим копии
+    const going = inFlight.get(cacheKey);
+    if (going) {
+      const res = (await going) as Loaded<T>;
+      if (valid(res.data)) return res;
+    }
+  }
+
+  const doFetch = async (): Promise<Loaded<T>> => {
   const tried: TriedEndpoint[] = [];
 
   const attempt = async (url: string, ctrl: AbortController): Promise<Loaded<T>> => {
@@ -163,6 +209,8 @@ export async function getJsonFirst<T>(
         timeoutMs,
         signal: ctrl.signal,
         noDnsFallback: opts.noDnsFallback,
+        method: opts.method,
+        body: opts.body,
       });
       if (res.status < 200 || res.status >= 300) {
         const body = res.text.replace(/\s+/g, " ").slice(0, 100);
@@ -177,7 +225,7 @@ export async function getJsonFirst<T>(
       }
       if (!valid(data)) throw new Error("Ответ пустой (нет событий)");
       tried.push({ url, ok: true, dnsVia: res.dnsVia, insecure: res.insecure });
-      if (opts.cacheKey) winnerCache.set(opts.cacheKey, { url, ts: Date.now() });
+      if (cacheKey) winnerCache.set(cacheKey, { url, ts: Date.now() });
       return { data, url, dnsVia: res.dnsVia, insecure: res.insecure, tried };
     } catch (e) {
       // в список «проверено адресов» идёт короткая причина без повторов имени хоста
@@ -189,7 +237,7 @@ export async function getJsonFirst<T>(
   };
 
   // 1. быстрый путь: недавно рабочий адрес
-  const known = opts.cacheKey ? winnerCache.get(opts.cacheKey) : undefined;
+  const known = cacheKey ? winnerCache.get(cacheKey) : undefined;
   if (known && Date.now() - known.ts < WINNER_TTL_MS && list.includes(known.url)) {
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();
@@ -197,7 +245,7 @@ export async function getJsonFirst<T>(
     try {
       return await attempt(known.url, ctrl);
     } catch {
-      winnerCache.delete(opts.cacheKey!);
+      winnerCache.delete(cacheKey!);
       tried.length = 0;
     } finally {
       signal?.removeEventListener?.("abort", onAbort);
@@ -245,6 +293,29 @@ export async function getJsonFirst<T>(
     ctrls.forEach((c) => c.abort());
     signal?.removeEventListener?.("abort", onAbort);
   }
+  };
+
+  // кэш/дедупликация: несколько видов спорта в одном скане делят один ответ фида
+  if (!cacheKey || opts.noDataCache) return doFetch();
+  const p = doFetch().then(
+    (res) => {
+      dataCache.set(cacheKey, {
+        data: res.data,
+        url: res.url,
+        dnsVia: res.dnsVia,
+        insecure: res.insecure,
+        ts: Date.now(),
+      });
+      inFlight.delete(cacheKey);
+      return res;
+    },
+    (e) => {
+      inFlight.delete(cacheKey);
+      throw e;
+    }
+  );
+  inFlight.set(cacheKey, p as Promise<Loaded<unknown>>);
+  return p;
 }
 
 /** Нормализация названия команды для сопоставления между конторами */
