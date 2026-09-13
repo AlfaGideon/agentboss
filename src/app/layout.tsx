@@ -3,9 +3,9 @@ import "./globals.css";
 import Shell from "@/components/Shell";
 
 export const metadata: Metadata = {
-  title: "BetScope — анализ ставок на спорт",
+  title: "Ставка PRO — анализ линий российских букмекеров",
   description:
-    "Сравнение коэффициентов букмекеров, поиск вилок и value-ставок, модели и учёт банкролла на реальных данных The Odds API.",
+    "Сравнение коэффициентов российских букмекеров, поиск вилок и ставок с перевесом, расчёт банка и налога.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -4,8 +4,18 @@ import { fonbet } from "./fonbet";
 import { ligastavok } from "./ligastavok";
 import { winline } from "./winline";
 import { olimp } from "./olimp";
+import { betboom, marathon, pari, zenit } from "./more-books";
 
-export const ADAPTERS: BookAdapter[] = [fonbet, ligastavok, winline, olimp];
+export const ADAPTERS: BookAdapter[] = [
+  fonbet,
+  ligastavok,
+  winline,
+  olimp,
+  betboom,
+  marathon,
+  pari,
+  zenit,
+];
 
 export const BOOKS = ADAPTERS.map((a) => ({ key: a.key, title: a.title, site: a.site }));
 

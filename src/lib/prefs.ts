@@ -17,7 +17,7 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
-  books: ["fonbet", "ligastavok", "winline", "olimp"],
+  books: ["fonbet", "ligastavok", "winline", "olimp", "betboom", "marathon", "pari", "zenit"],
   sports: ["football"],
   bankroll: 100000,
   currency: "₽",

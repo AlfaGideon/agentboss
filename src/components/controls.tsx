@@ -5,8 +5,12 @@ import { SPORTS, type SportKey } from "@/lib/books/types";
 export const BOOKS = [
   { key: "fonbet", title: "Фонбет" },
   { key: "ligastavok", title: "Лига Ставок" },
-  { key: "winline", title: "Winline" },
+  { key: "winline", title: "Винлайн" },
   { key: "olimp", title: "Олимп" },
+  { key: "betboom", title: "БетБум" },
+  { key: "marathon", title: "Марафон" },
+  { key: "pari", title: "ПАРИ" },
+  { key: "zenit", title: "Зенитбет" },
 ];
 
 export function BookToggle({

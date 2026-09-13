@@ -8,8 +8,8 @@ const NAV = [
   { href: "/", label: "Обзор", icon: "◧" },
   { href: "/line", label: "Сравнение линий", icon: "≡" },
   { href: "/arbitrage", label: "Вилки", icon: "⇄" },
-  { href: "/value", label: "Value-беты", icon: "◆" },
-  { href: "/models", label: "Модели", icon: "∑" },
+  { href: "/value", label: "Ставки с перевесом", icon: "◆" },
+  { href: "/models", label: "Прогноз матча", icon: "∑" },
   { href: "/calculators", label: "Калькуляторы", icon: "🧮" },
   { href: "/tracker", label: "Мои ставки", icon: "▤" },
   { href: "/settings", label: "Настройки", icon: "⚙" },
@@ -41,9 +41,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             ⬢
           </span>
           <div>
-            <p className="text-sm font-semibold text-white">BetScope</p>
+            <p className="text-sm font-semibold text-white">Ставка PRO</p>
             <p className="text-[10px] uppercase tracking-widest text-slate-500">
-              odds intelligence
+              анализ линий
             </p>
           </div>
         </div>
@@ -97,7 +97,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </button>
           <h1 className="text-sm font-medium text-slate-300">
             {NAV.find((n) => (n.href === "/" ? pathname === "/" : pathname.startsWith(n.href)))
-              ?.label ?? "BetScope"}
+              ?.label ?? "Ставка PRO"}
           </h1>
           <div className="ml-auto hidden items-center gap-2 text-xs text-slate-500 sm:flex">
             <span className="chip">российские букмекеры</span>

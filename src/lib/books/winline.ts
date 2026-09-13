@@ -148,7 +148,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
     const eid = String(e.id ?? e.eventId ?? `${h}-${a}`);
     out.push({
       bookKey: "winline",
-      bookTitle: "Winline",
+      bookTitle: "Винлайн",
       bookEventId: eid,
       sport,
       league: str(e.championship) || str(e.tournament) || "",
@@ -165,7 +165,7 @@ async function fetchLine(sport: SportKey, signal: AbortSignal) {
 
 export const winline: BookAdapter = {
   key: "winline",
-  title: "Winline",
+  title: "Винлайн",
   site: "https://winline.ru",
   sports: ["football", "hockey", "tennis", "basketball", "volleyball", "table_tennis", "mma", "esports"],
   fetchLine,

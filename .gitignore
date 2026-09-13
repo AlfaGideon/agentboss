@@ -9,5 +9,7 @@ dist
 *.log
 .DS_Store
 next-env.d.ts
+
+# .bat-файлы запуска остаются в репозитории
 .vercel
 data/*.json

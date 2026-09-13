@@ -66,7 +66,7 @@ export default function SettingsPage() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Num
-            label="Мин. перевес value, %"
+            label="Мин. перевес, %"
             value={prefs.minEdge}
             step="0.5"
             onChange={(v) => setPrefs({ ...prefs, minEdge: v })}
@@ -122,26 +122,26 @@ export default function SettingsPage() {
             </select>
           </div>
           <div>
-            <label className="label">Доля Kelly</label>
+            <label className="label">Доля Келли</label>
             <select
               className="input"
               value={prefs.kellyFraction}
               onChange={(e) => setPrefs({ ...prefs, kellyFraction: Number(e.target.value) })}
             >
-              <option value={1}>полный Kelly (агрессивно)</option>
-              <option value={0.5}>1/2 Kelly</option>
-              <option value={0.25}>1/4 Kelly (рекомендуется)</option>
-              <option value={0.1}>1/10 Kelly (консервативно)</option>
+              <option value={1}>полный Келли (агрессивно)</option>
+              <option value={0.5}>1/2 Келли</option>
+              <option value={0.25}>1/4 Келли (рекомендуется)</option>
+              <option value={0.1}>1/10 Келли (консервативно)</option>
             </select>
           </div>
           <div>
-            <label className="label">Метод снятия маржи</label>
+            <label className="label">Метод расчёта справедливой цены</label>
             <select
               className="input"
               value={prefs.method}
               onChange={(e) => setPrefs({ ...prefs, method: e.target.value as "shin" | "multiplicative" })}
             >
-              <option value="shin">Shin</option>
+              <option value="shin">Шина</option>
               <option value="multiplicative">Пропорциональный</option>
             </select>
           </div>

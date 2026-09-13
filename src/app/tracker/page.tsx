@@ -195,7 +195,7 @@ export default function TrackerPage() {
         </div>
         {filtered.length === 0 ? (
           <p className="p-6 text-sm text-slate-500">
-            Пока пусто. Добавьте ставку вручную или отправьте сигнал со страницы value-ставок.
+            Пока пусто. Добавьте ставку вручную или отправьте сигнал со страницы ставок с перевесом.
           </p>
         ) : (
           <div className="table-wrap m-4">

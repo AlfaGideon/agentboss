@@ -199,7 +199,7 @@ export default function ModelsPage() {
                     <th className="th">Лучшая цена</th>
                     <th className="th">Контора</th>
                     <th className="th">Перевес</th>
-                    <th className="th">Kelly</th>
+                    <th className="th">Келли</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-edge">

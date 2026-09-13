@@ -116,7 +116,7 @@ export default function Dashboard() {
           tone={arbs.length ? "good" : "neutral"}
         />
         <Stat
-          label="Value-ставок"
+          label="Ставок с перевесом"
           value={loading ? "…" : String(value.length)}
           sub={value.length ? `макс. ${pct(value[0].edgePct)}` : "нет перевеса"}
           tone={value.length ? "warn" : "neutral"}
@@ -172,7 +172,7 @@ export default function Dashboard() {
 
         <section className="card">
           <div className="flex items-center justify-between border-b border-edge px-4 py-3">
-            <h3 className="font-medium text-white">Лучшие value-ставки</h3>
+            <h3 className="font-medium text-white">Лучшие ставки с перевесом</h3>
             <Link href="/value" className="text-xs text-accent underline">
               все ставки →
             </Link>
@@ -195,7 +195,7 @@ export default function Dashboard() {
                     <div className="text-right">
                       <Badge tone="warn">{pct(v.edgePct)}</Badge>
                       <p className="mt-1 text-[11px] text-slate-500">
-                        Kelly {(v.kelly * prefs.kellyFraction * 100).toFixed(1)}%
+                        Келли {(v.kelly * prefs.kellyFraction * 100).toFixed(1)}%
                       </p>
                     </div>
                   </div>
@@ -213,7 +213,7 @@ export default function Dashboard() {
         <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <Quick href="/line" title="Сравнение линий" desc="Лучшая цена по каждому исходу среди российских контор" />
           <Quick href="/models" title="Модель матча" desc="Пуассон, тоталы, точный счёт против линии букмекера" />
-          <Quick href="/calculators" title="Калькуляторы" desc="Kelly, вилка, хедж, экспресс, маржа, налог 13%" />
+          <Quick href="/calculators" title="Калькуляторы" desc="Келли, вилка, хедж, экспресс, маржа, налог 13%" />
           <Quick href="/tracker" title="Мои ставки" desc="ROI, банкролл, разбивка по конторам" />
         </div>
       </section>

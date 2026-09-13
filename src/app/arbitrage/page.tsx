@@ -163,7 +163,7 @@ export default function ArbitragePage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-4 py-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    {a.live && <Badge tone="bad">LIVE</Badge>}
+                    {a.live && <Badge tone="bad">ЛАЙВ</Badge>}
                     <p className="font-medium text-white">{a.match}</p>
                   </div>
                   <p className="mt-0.5 text-xs text-slate-500">

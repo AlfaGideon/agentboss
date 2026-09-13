@@ -17,12 +17,12 @@ import {
 } from "@/lib/math";
 
 const TABS = [
-  { id: "kelly", label: "Kelly / EV" },
+  { id: "kelly", label: "Келли / ожидаемая прибыль" },
   { id: "arb", label: "Вилка / Дачинг" },
   { id: "hedge", label: "Хедж" },
   { id: "parlay", label: "Экспресс" },
   { id: "convert", label: "Конвертер" },
-  { id: "margin", label: "Маржа и CLV" },
+  { id: "margin", label: "Маржа и движение линии" },
   { id: "tax", label: "Налог 13%" },
 ] as const;
 
@@ -45,7 +45,7 @@ export default function CalculatorsPage() {
           </button>
         ))}
       </div>
-      {tab === "kelly" && <KellyCalc />}
+      {tab === "kelly" && <КеллиCalc />}
       {tab === "arb" && <ArbCalc />}
       {tab === "hedge" && <HedgeCalc />}
       {tab === "parlay" && <ParlayCalc />}
@@ -105,7 +105,7 @@ function Result({ rows }: { rows: { label: string; value: string; tone?: string 
   );
 }
 
-function KellyCalc() {
+function КеллиCalc() {
   const [prefs] = usePrefs();
   const [odds, setOdds] = useState(2.1);
   const [prob, setProb] = useState(52);
@@ -123,19 +123,19 @@ function KellyCalc() {
         <Field label="Коэффициент" value={odds} onChange={setOdds} />
         <Field label="Ваша вероятность" value={prob} onChange={setProb} step="0.1" suffix="%" />
         <Field label="Банкролл" value={bank} onChange={setBank} step="100" />
-        <Field label="Доля Kelly" value={frac} onChange={setFrac} step="0.05" />
+        <Field label="Доля Келли" value={frac} onChange={setFrac} step="0.05" />
       </div>
       <Result
         rows={[
           { label: "Перевес над рынком", value: `${edge.toFixed(2)}%`, tone: edge > 0 ? "text-good" : "text-bad" },
-          { label: "Полный Kelly", value: `${(k * 100).toFixed(2)}% банка` },
+          { label: "Полный Келли", value: `${(k * 100).toFixed(2)}% банка` },
           { label: "Рекомендуемая ставка", value: money(stake, prefs.currency), tone: "text-accent" },
           { label: "Ожидаемая прибыль", value: money(ev, prefs.currency), tone: ev > 0 ? "text-good" : "text-bad" },
         ]}
       />
       <p className="text-xs text-slate-500">
-        Полный Kelly максимизирует рост банка, но даёт высокую волатильность. Практика — 1/4 или
-        1/2 Kelly. Если перевес отрицателен, ставка не рекомендуется.
+        Полный Келли максимизирует рост банка, но даёт высокую волатильность. Практика — 1/4 или
+        1/2 Келли. Если перевес отрицателен, ставка не рекомендуется.
       </p>
     </div>
   );
@@ -381,7 +381,7 @@ function MarginCalc() {
         />
       </div>
       <div className="card-pad space-y-4">
-        <h3 className="font-medium text-white">CLV — closing line value</h3>
+        <h3 className="font-medium text-white">Движение линии к закрытию (движение линии)</h3>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Взятый коэффициент" value={taken} onChange={setTaken} />
           <Field label="Закрывающий коэффициент" value={closing} onChange={setClosing} />
@@ -389,7 +389,7 @@ function MarginCalc() {
         <Result
           rows={[
             {
-              label: "CLV",
+              label: "движение линии",
               value: `${c > 0 ? "+" : ""}${c.toFixed(2)}%`,
               tone: c > 0 ? "text-good" : "text-bad",
             },
@@ -403,7 +403,7 @@ function MarginCalc() {
           ]}
         />
         <p className="text-xs text-slate-500">
-          Стабильно положительный CLV — самый надёжный индикатор долгосрочной прибыльности,
+          Стабильно положительный движение линии — самый надёжный индикатор долгосрочной прибыльности,
           важнее короткой серии выигрышей.
         </p>
       </div>

@@ -150,7 +150,7 @@ export default function LinePage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-4 py-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    {ev.live && <Badge tone="bad">LIVE</Badge>}
+                    {ev.live && <Badge tone="bad">ЛАЙВ</Badge>}
                     <p className="truncate font-medium text-white">
                       {ev.home} <span className="text-slate-600">—</span> {ev.away}
                     </p>

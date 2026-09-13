@@ -161,14 +161,14 @@ export default function ValuePage() {
               <label className="label">Сортировка</label>
               <select className="input" value={sort} onChange={(e) => setSort(e.target.value as any)}>
                 <option value="edge">По перевесу</option>
-                <option value="ev">По EV</option>
-                <option value="kelly">По Kelly</option>
+                <option value="ev">По прибыли</option>
+                <option value="kelly">По Келли</option>
                 <option value="time">По времени</option>
               </select>
             </div>
           </div>
           <button className="btn-primary w-full" onClick={load} disabled={loading}>
-            {loading ? "Анализирую…" : "Найти value"}
+            {loading ? "Анализирую…" : "Найти перевес"}
           </button>
         </div>
       </div>
@@ -181,7 +181,7 @@ export default function ValuePage() {
         <Stat label={`Сравнимо (${prefs.minBooks}+ контор)`} value={String(comparable)} tone="accent" />
         <Stat label="Сигналов" value={String(rows.length)} tone={rows.length ? "warn" : "neutral"} />
         <Stat
-          label="Банк / доля Kelly"
+          label="Банк / доля Келли"
           value={`${(prefs.kellyFraction * 100).toFixed(0)}%`}
           sub={money(prefs.bankroll, prefs.currency)}
         />
@@ -208,7 +208,7 @@ export default function ValuePage() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    {v.live && <Badge tone="bad">LIVE</Badge>}
+                    {v.live && <Badge tone="bad">ЛАЙВ</Badge>}
                     <p className="font-medium text-white">{v.match}</p>
                     <Badge>{sportTitle(v.sport)}</Badge>
                     <Badge>{v.marketLabel}</Badge>
@@ -249,10 +249,10 @@ export default function ValuePage() {
                   </div>
                   <div className="flex justify-end gap-4 text-xs text-slate-400">
                     <span>
-                      EV/100: <b className="text-good">{v.evPer100.toFixed(1)}</b>
+                      Прибыль/100: <b className="text-good">{v.evPer100.toFixed(1)}</b>
                     </span>
                     <span>
-                      Kelly: <b className="text-slate-200">{(v.kelly * 100).toFixed(1)}%</b>
+                      Келли: <b className="text-slate-200">{(v.kelly * 100).toFixed(1)}%</b>
                     </span>
                   </div>
                   <div className="rounded-lg border border-edge bg-slate-900/60 p-2 text-xs">
