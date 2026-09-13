@@ -2,18 +2,34 @@ import type { BookAdapter, BookEvent, BookFetchResult, MergedEvent, SportKey } f
 import { similarity, normTeam } from "./http";
 import { fonbet } from "./fonbet";
 import { ligastavok } from "./ligastavok";
-import { winline } from "./winline";
+import { leon } from "./leon";
 import { olimp } from "./olimp";
-import { betboom, marathon, pari, zenit } from "./more-books";
+import { marathon } from "./marathon";
+import { pari } from "./pari";
+import { bettery } from "./bettery";
+import { zenit } from "./zenit";
 
+/**
+ * Источники котировок — только конторы с официальными публичными фидами,
+ * которые читаются напрямую (без ключей и регистрации):
+ *
+ *   Фонбет, Марафон, ПАРИ, Беттери — платформа lineNN.{код}-resources.com;
+ *   Лига Ставок — lds-api-sites.ligastavok.ru (REST);
+ *   Леон — leon.ru/api-2 (REST);
+ *   Олимп — olimp.bet/api/v4 (REST);
+ *   Зенит — zenit.win/ajax (AJAX-фид линии).
+ *
+ * Winline и BetBoom публичных фидов не имеют (сайты защищены от ботов),
+ * поэтому в сканере не участвуют.
+ */
 export const ADAPTERS: BookAdapter[] = [
   fonbet,
   ligastavok,
-  winline,
+  leon,
   olimp,
-  betboom,
   marathon,
   pari,
+  bettery,
   zenit,
 ];
 

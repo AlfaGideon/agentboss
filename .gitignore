@@ -17,3 +17,6 @@ data/*.json
 # отчёт диагностики
 diag-report.txt
 *.tsbuildinfo
+
+# сборка для офлайн-тестов парсеров
+.testbuild

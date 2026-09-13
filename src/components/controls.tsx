@@ -1,17 +1,8 @@
 "use client";
 
-import { SPORTS, type SportKey } from "@/lib/books/types";
+import { SPORTS, BOOK_LIST, type SportKey } from "@/lib/books/types";
 
-export const BOOKS = [
-  { key: "fonbet", title: "Фонбет" },
-  { key: "ligastavok", title: "Лига Ставок" },
-  { key: "winline", title: "Винлайн" },
-  { key: "olimp", title: "Олимп" },
-  { key: "betboom", title: "БетБум" },
-  { key: "marathon", title: "Марафон" },
-  { key: "pari", title: "ПАРИ" },
-  { key: "zenit", title: "Зенитбет" },
-];
+export const BOOKS = BOOK_LIST;
 
 export function BookToggle({
   value,
@@ -68,29 +59,36 @@ export function SportSelect({
 export function SportToggle({
   value,
   onChange,
-  max = 4,
+  max = SPORTS.length,
 }: {
   value: SportKey[];
   onChange: (v: SportKey[]) => void;
+  /** максимум одновременно выбранных видов спорта (по умолчанию — все) */
   max?: number;
 }) {
+  const all = max >= SPORTS.length;
   return (
     <div className="flex flex-wrap gap-2">
       {SPORTS.map((s) => {
         const on = value.includes(s.key);
+        const blocked = !on && !all && value.length >= max;
         return (
           <button
             key={s.key}
             type="button"
+            disabled={blocked}
+            title={blocked ? `Максимум ${max} видов спорта` : undefined}
             onClick={() =>
               on
                 ? value.length > 1 && onChange(value.filter((x) => x !== s.key))
-                : value.length < max && onChange([...value, s.key])
+                : onChange([...value, s.key])
             }
             className={`rounded-lg border px-3 py-1.5 text-sm transition ${
               on
                 ? "border-accent/60 bg-accent/15 text-accent"
-                : "border-edge bg-slate-800/50 text-slate-400 hover:text-slate-200"
+                : blocked
+                  ? "cursor-not-allowed border-edge bg-slate-800/30 text-slate-600"
+                  : "border-edge bg-slate-800/50 text-slate-400 hover:text-slate-200"
             }`}
           >
             {s.title}

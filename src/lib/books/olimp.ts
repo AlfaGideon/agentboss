@@ -1,158 +1,198 @@
 import type { BookAdapter, BookEvent, SportKey, TotalLine, HandicapLine } from "./types";
 import { getJsonFirst, roundLine } from "./http";
+import { RU_SPORT_MATCH } from "./platform";
 
 /**
- * Олимп (olimp.bet / olimpbet.kz). Публичное API линии.
+ * Олимп. Официальное публичное API линии, которым пользуется сайт olimp.bet:
+ *
+ *   прематч: https://www.olimp.bet/api/v4/0/line/sports-with-competitions-with-events?vids[]=
+ *   лайв:    https://www.olimp.bet/api/v4/0/live/sports-with-competitions-with-events?vids[]=
+ *
+ * Ответ — массив секций по видам спорта:
+ *   [{ payload: { sport: { id, name }, competitionsWithEvents: [
+ *        { name, events: [ { id, team1Name, team2Name, startDateTime,
+ *            sportName, competitionName,
+ *            outcomes: [ { shortName: "П1"|"Х"|"П2"|"ТБ"|"ТМ"|"Ф1"|"Ф2",
+ *                          probability: "2.10" (это коэффициент), param: линия } ] } ] } ] } }]
  */
 
-const SPORT_NAMES: Record<SportKey, RegExp> = {
-  football: /футбол/i,
-  hockey: /хоккей/i,
-  tennis: /^теннис/i,
-  basketball: /баскетбол/i,
-  volleyball: /волейбол/i,
-  table_tennis: /настольный теннис/i,
-  mma: /mma|бокс|смешанные/i,
-  esports: /кибер|dota|counter|lol/i,
+const HOSTS = ["https://www.olimp.bet", "https://olimp.bet"];
+
+const preUrls = HOSTS.map(
+  (h) => `${h}/api/v4/0/line/sports-with-competitions-with-events?vids%5B%5D=`
+).concat(
+  HOSTS.map((h) => `${h}/api/v4/0/line/all/sports-with-competitions-with-events?vids%5B%5D=`),
+  HOSTS.map((h) => `${h}/api/v4/0/line/top/sports-with-competitions-with-events?vids%5B%5D=`)
+);
+const liveUrls = HOSTS.map(
+  (h) => `${h}/api/v4/0/live/sports-with-competitions-with-events?vids%5B%5D=`
+);
+
+type OlOutcome = {
+  shortName?: string;
+  name?: string;
+  probability?: string | number;
+  param?: number | string;
+  tableType?: string;
+};
+type OlEvent = {
+  id?: number | string;
+  team1Name?: string;
+  team2Name?: string;
+  startDateTime?: string | number;
+  sportName?: string;
+  competitionName?: string;
+  outcomes?: OlOutcome[];
+};
+type OlSection = {
+  payload?: {
+    sport?: { id?: string | number; name?: string; names?: Record<string, string> };
+    competitionsWithEvents?: {
+      name?: string;
+      competitionName?: string;
+      competition?: { name?: string; names?: Record<string, string> };
+      events?: OlEvent[];
+    }[];
+  };
 };
 
-const ENDPOINTS = [
-  "https://olimp.bet/api/v3/line/sports",
-  "https://www.olimp.bet/api/v3/line/sports",
-  "https://olimp.bet/api/v1/line/sports",
-  "https://olimp.bet/api/v1/line",
-];
+const num = (v: unknown): number | undefined => {
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
+  return Number.isFinite(n) && n > 1.01 && n < 1000 ? n : undefined;
+};
 
-type AnyRec = Record<string, any>;
+const lineVal = (v: unknown): number | undefined => {
+  const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
+  return Number.isFinite(n) && n !== 0 ? roundLine(n) : undefined;
+};
 
-function collectEvents(node: any, acc: AnyRec[] = [], depth = 0): AnyRec[] {
-  if (!node || depth > 6) return acc;
-  if (Array.isArray(node)) {
-    for (const n of node) collectEvents(n, acc, depth + 1);
-    return acc;
+function startTime(e: OlEvent): string {
+  const raw = e.startDateTime;
+  if (typeof raw === "number") return new Date(raw > 1e12 ? raw : raw * 1000).toISOString();
+  if (typeof raw === "string") {
+    const d = new Date(raw);
+    if (!isNaN(+d)) return d.toISOString();
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return new Date(n > 1e12 ? n : n * 1000).toISOString();
   }
-  if (typeof node === "object") {
-    const hasTeams =
-      (node.team1 || node.opp1 || node.home) && (node.team2 || node.opp2 || node.away);
-    if (hasTeams) acc.push(node);
-    for (const k of ["events", "matches", "items", "children", "tournaments", "leagues", "data", "sports"]) {
-      if (node[k]) collectEvents(node[k], acc, depth + 1);
-    }
-  }
-  return acc;
+  return new Date().toISOString();
 }
 
-function parseMarkets(e: AnyRec) {
+export function parseEvent(e: OlEvent, sport: SportKey, league: string, live: boolean): BookEvent | null {
+  const home = e.team1Name?.trim();
+  const away = e.team2Name?.trim();
+  if (!home || !away) return null;
+
+  if (e.sportName && !RU_SPORT_MATCH[sport].test(e.sportName)) return null;
+
   const ml: { home?: number; draw?: number; away?: number } = {};
-  const dc: { homeDraw?: number; homeAway?: number; drawAway?: number } = {};
   const totalsMap = new Map<number, TotalLine>();
   const hcapMap = new Map<number, HandicapLine>();
-  const btts: { yes?: number; no?: number } = {};
 
-  const num = (v: any) => {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 1 ? n : undefined;
-  };
+  for (const o of e.outcomes || []) {
+    const name = String(o.shortName ?? o.name ?? "").trim().toLowerCase();
+    const price = num(o.probability);
+    if (!name || !price) continue;
+    const line = lineVal(o.param);
 
-  ml.home = num(e.win1 ?? e.w1 ?? e.p1 ?? e.coef1);
-  ml.draw = num(e.draw ?? e.x ?? e.coefX);
-  ml.away = num(e.win2 ?? e.w2 ?? e.p2 ?? e.coef2);
-  dc.homeDraw = num(e.win1draw ?? e["1x"]);
-  dc.homeAway = num(e.win1win2 ?? e["12"]);
-  dc.drawAway = num(e.drawwin2 ?? e["x2"]);
-
-  const outcomes: AnyRec[] = [];
-  for (const k of ["factors", "outcomes", "markets", "coefs", "odds"]) {
-    if (Array.isArray(e[k])) outcomes.push(...e[k]);
-  }
-  for (const o of outcomes) {
-    const name = String(o.name ?? o.caption ?? o.type ?? "").toLowerCase().replace(/\s+/g, "");
-    const price = num(o.value ?? o.coef ?? o.factor ?? o.odd);
-    const param = Number(o.param ?? o.parameter ?? o.total ?? o.hcap);
-    if (!price) continue;
-    if (name === "1" || name === "п1") ml.home = price;
-    else if (name === "x" || name === "х") ml.draw = price;
-    else if (name === "2" || name === "п2") ml.away = price;
-    else if (/^(тб|over|больше)/.test(name) && Number.isFinite(param)) {
-      const line = roundLine(param);
+    if (name === "п1" || name === "1" || name === "w1") ml.home = price;
+    else if (name === "х" || name === "x" || name === "ничья") ml.draw = price;
+    else if (name === "п2" || name === "2" || name === "w2") ml.away = price;
+    else if (/^(тб|бол|больше|over)/.test(name) && line != null) {
       const t = totalsMap.get(line) || { line };
       t.over = price;
       totalsMap.set(line, t);
-    } else if (/^(тм|under|меньше)/.test(name) && Number.isFinite(param)) {
-      const line = roundLine(param);
+    } else if (/^(тм|мен|меньше|under)/.test(name) && line != null) {
       const t = totalsMap.get(line) || { line };
       t.under = price;
       totalsMap.set(line, t);
-    } else if (/^(ф1|фора1)/.test(name) && Number.isFinite(param)) {
-      const line = roundLine(param);
+    } else if (/^(ф1|фора1)/.test(name) && line != null) {
       const h = hcapMap.get(line) || { line };
       h.home = price;
       hcapMap.set(line, h);
-    } else if (/^(ф2|фора2)/.test(name) && Number.isFinite(param)) {
-      const line = roundLine(-param);
-      const h = hcapMap.get(line) || { line };
+    } else if (/^(ф2|фора2)/.test(name) && line != null) {
+      const signed = -line;
+      const h = hcapMap.get(signed) || { line: signed };
       h.away = price;
-      hcapMap.set(line, h);
+      hcapMap.set(signed, h);
     }
   }
 
+  if (!ml.home && !ml.away) return null;
+
   return {
-    moneyline: ml,
-    doubleChance: dc,
-    btts,
-    totals: [...totalsMap.values()].filter((t) => t.over && t.under).sort((a, b) => a.line - b.line),
-    handicaps: [...hcapMap.values()].filter((h) => h.home && h.away).sort((a, b) => a.line - b.line),
+    bookKey: "olimp",
+    bookTitle: "Олимп",
+    bookEventId: String(e.id ?? `${home}-${away}`),
+    sport,
+    league: league || e.competitionName || "",
+    home,
+    away,
+    startTime: startTime(e),
+    live,
+    url: "https://www.olimp.bet/",
+    markets: {
+      moneyline: ml,
+      totals: [...totalsMap.values()].filter((t) => t.over && t.under).sort((a, b) => a.line - b.line),
+      handicaps: [...hcapMap.values()].filter((h) => h.home && h.away).sort((a, b) => a.line - b.line),
+    },
   };
 }
 
-async function fetchLine(sport: SportKey, signal: AbortSignal) {
-  const loaded = await getJsonFirst<any>(ENDPOINTS, signal, {
-    cacheKey: "olimp",
-    isValid: (d) => Boolean(d),
-  });
-  const raw = loaded.data;
-  const endpoint = loaded.url;
-  if (!raw) throw new Error("Линия Олимпа ответила пусто");
-
-  const all = collectEvents(raw);
-  const re = SPORT_NAMES[sport];
+export function parseSections(sections: OlSection[], sport: SportKey, live: boolean): BookEvent[] {
   const out: BookEvent[] = [];
-  for (const e of all) {
-    const sportName = String(e.sportName ?? e.sport ?? e.sport_name ?? "");
-    if (sportName && !re.test(sportName)) continue;
-    const home = String(e.team1 ?? e.opp1 ?? e.home ?? "");
-    const away = String(e.team2 ?? e.opp2 ?? e.away ?? "");
-    if (!home || !away) continue;
-    const markets = parseMarkets(e);
-    if (!markets.moneyline.home && !markets.moneyline.away) continue;
-    const t = e.date ?? e.startTime ?? e.start ?? e.time;
-    const startTime =
-      typeof t === "number"
-        ? new Date(t > 1e12 ? t : t * 1000).toISOString()
-        : t
-        ? new Date(String(t)).toISOString()
-        : new Date().toISOString();
-    out.push({
-      bookKey: "olimp",
-      bookTitle: "Олимп",
-      bookEventId: String(e.id ?? e.eventId ?? `${home}-${away}`),
-      sport,
-      league: String(e.tournament ?? e.league ?? e.champName ?? ""),
-      home,
-      away,
-      startTime: isNaN(+new Date(startTime)) ? new Date().toISOString() : startTime,
-      live: Boolean(e.isLive ?? e.live),
-      url: "https://olimp.bet/",
-      markets,
-    });
+  for (const section of sections || []) {
+    const payload = section?.payload;
+    if (!payload) continue;
+    const sportName = payload.sport?.name || payload.sport?.names?.["0"] || "";
+    if (sportName && !RU_SPORT_MATCH[sport].test(sportName)) continue;
+
+    for (const comp of payload.competitionsWithEvents || []) {
+      const league =
+        comp.name ||
+        comp.competitionName ||
+        comp.competition?.name ||
+        comp.competition?.names?.["0"] ||
+        "";
+      for (const e of comp.events || []) {
+        const parsed = parseEvent(e, sport, league, live);
+        if (parsed) out.push(parsed);
+      }
+    }
   }
-  return { events: out, endpoint, rawCount: all.length, dnsVia: loaded.dnsVia, insecure: loaded.insecure, tried: loaded.tried };
+  return out;
+}
+
+const isValid = (d: OlSection[]) => Array.isArray(d) && d.some((s) => s?.payload?.competitionsWithEvents?.length);
+
+async function fetchLine(sport: SportKey, signal: AbortSignal) {
+  const pre = await getJsonFirst<OlSection[]>(preUrls, signal, {
+    cacheKey: "olimp:pre",
+    isValid,
+  });
+  let events = parseSections(pre.data, sport, false);
+  const endpoint = pre.url;
+  const rawCount = pre.data.length;
+
+  try {
+    const live = await getJsonFirst<OlSection[]>(liveUrls, signal, {
+      cacheKey: "olimp:live",
+      isValid,
+    });
+    const liveEvents = parseSections(live.data, sport, true);
+    const seen = new Set(liveEvents.map((e) => e.bookEventId));
+    events = [...liveEvents, ...events.filter((e) => !seen.has(e.bookEventId))];
+  } catch {
+    /* лайв недоступен — отдаём прематч */
+  }
+
+  return { events, endpoint, rawCount, dnsVia: pre.dnsVia, insecure: pre.insecure, tried: pre.tried };
 }
 
 export const olimp: BookAdapter = {
   key: "olimp",
   title: "Олимп",
-  site: "https://olimp.bet",
+  site: "https://www.olimp.bet",
   sports: ["football", "hockey", "tennis", "basketball", "volleyball", "table_tennis", "mma", "esports"],
   fetchLine,
 };

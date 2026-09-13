@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchAllBooks, mergeEvents } from "@/lib/books";
 import { findRuArbs } from "@/lib/books/analyze";
-import type { SportKey } from "@/lib/books/types";
+import { SPORTS, type SportKey } from "@/lib/books/types";
 import { fail, NO_BOOKS_HINT, sourceView, withNetwork } from "../_util";
 
 export const dynamic = "force-dynamic";
@@ -9,13 +9,13 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const sports = (sp.get("sports") || "football").split(",").filter(Boolean) as SportKey[];
-  const books = (sp.get("books") || "fonbet,ligastavok,winline,olimp").split(",").filter(Boolean);
+  const books = (sp.get("books") || "fonbet,ligastavok,leon,olimp").split(",").filter(Boolean);
   const minProfit = Number(sp.get("minProfit") ?? 0.5);
 
   return withNetwork(req, async () => {
     try {
       const perSport = await Promise.all(
-        sports.slice(0, 4).map(async (s) => {
+        sports.slice(0, SPORTS.length).map(async (s) => {
           const results = await fetchAllBooks(s, books);
           return { results, merged: mergeEvents(results) };
         })

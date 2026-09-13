@@ -319,6 +319,10 @@ export type HttpOptions = {
   /** запретить резервный DNS для этого запроса */
   noDnsFallback?: boolean;
   maxRedirects?: number;
+  /** метод запроса (по умолчанию GET); POST нужен, например, Лиге Ставок */
+  method?: "GET" | "POST";
+  /** тело запроса (для POST) */
+  body?: string;
 };
 
 function decodeBody(buf: Buffer, enc: string): string {
@@ -352,7 +356,9 @@ function requestOnce(
   headers: Record<string, string>,
   timeoutMs: number,
   signal: AbortSignal | undefined,
-  rejectUnauthorized: boolean
+  rejectUnauthorized: boolean,
+  method: "GET" | "POST" = "GET",
+  body?: string
 ): Promise<{ status: number; headers: Record<string, any>; buf: Buffer; insecure: boolean }> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -361,7 +367,7 @@ function requestOnce(
         host: ip,
         port: target.port ? Number(target.port) : 443,
         path: `${target.pathname}${target.search}`,
-        method: "GET",
+        method,
         servername: target.hostname,
         rejectUnauthorized,
         headers: { Host: target.host, ...headers },
@@ -403,7 +409,7 @@ function requestOnce(
       signal.addEventListener("abort", onAbort, { once: true });
       req.once("close", () => signal.removeEventListener("abort", onAbort));
     }
-    req.end();
+    req.end(body);
   });
 }
 
@@ -427,12 +433,13 @@ export async function httpGet(rawUrl: string, opts: HttpOptions = {}): Promise<H
     }
 
     const headers = { ...opts.headers };
+    const method = opts.method ?? "GET";
     let res: { status: number; headers: Record<string, any>; buf: Buffer; insecure: boolean };
     try {
-      res = await requestOnce(url, ip, headers, timeoutMs, opts.signal, true);
+      res = await requestOnce(url, ip, headers, timeoutMs, opts.signal, true, method, opts.body);
     } catch (e) {
       if (INSECURE_ALLOWED && isCertError(e)) {
-        res = await requestOnce(url, ip, headers, timeoutMs, opts.signal, false);
+        res = await requestOnce(url, ip, headers, timeoutMs, opts.signal, false, method, opts.body);
         insecure = true;
         if (!insecureWarned) {
           insecureWarned = true;

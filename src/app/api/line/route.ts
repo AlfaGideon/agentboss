@@ -6,12 +6,17 @@ import { fail, NO_BOOKS_HINT, sourceView, withNetwork } from "../_util";
 
 export const dynamic = "force-dynamic";
 
+/** сколько событий отдаём наружу (прематч-линия большая — режем) */
+const MAX_EVENTS = 400;
+
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const sport = (sp.get("sport") || "football") as SportKey;
-  const books = (sp.get("books") || "fonbet,ligastavok,winline,olimp").split(",").filter(Boolean);
+  const books = (sp.get("books") || "fonbet,ligastavok,leon,olimp").split(",").filter(Boolean);
   const method = (sp.get("method") as "shin" | "multiplicative") || "shin";
   const live = sp.get("live");
+  /** горизонт будущих событий в днях: 0/не задано — все */
+  const days = Number(sp.get("days") ?? 0);
 
   return withNetwork(req, async () => {
     try {
@@ -20,8 +25,12 @@ export async function GET(req: Request) {
       let merged = mergeEvents(results);
       if (live === "1") merged = merged.filter((m) => m.live);
       if (live === "0") merged = merged.filter((m) => !m.live);
+      if (days > 0) {
+        const until = Date.now() + days * 24 * 60 * 60 * 1000;
+        merged = merged.filter((m) => m.live || +new Date(m.startTime) <= until);
+      }
 
-      const events = merged.slice(0, 250).map((ev) => ({
+      const events = merged.slice(0, MAX_EVENTS).map((ev) => ({
         id: ev.id,
         sport: ev.sport,
         league: ev.league,
@@ -36,8 +45,8 @@ export async function GET(req: Request) {
 
       return NextResponse.json({
         events,
-        sources: results.map(sourceView),
         totalMerged: merged.length,
+        sources: results.map(sourceView),
         hint: ok.length ? undefined : NO_BOOKS_HINT,
         fetchedAt: new Date().toISOString(),
       });
