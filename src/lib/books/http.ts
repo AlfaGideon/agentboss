@@ -1,4 +1,5 @@
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+import https from "node:https";
 
 export const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -55,6 +56,48 @@ async function peekBody(res: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/**
+ * Обход перехвата HTTPS: антивирусы (Касперский, Dr.Web, ESET) и корпоративные
+ * прокси подменяют сертификат своим, а Node доверяет только своему хранилищу.
+ * Если сертификат не принят, повторяем запрос без проверки — данные всё равно
+ * публичные котировки. Отключается переменной BOOKS_INSECURE_FALLBACK=0.
+ */
+const INSECURE_ALLOWED = process.env.BOOKS_INSECURE_FALLBACK !== "0";
+let insecureWarned = false;
+
+const isCertError = (e: unknown) => {
+  const anyE = e as any;
+  const code = anyE?.cause?.code || anyE?.code || "";
+  const msg = String(anyE?.message || "");
+  return /CERT|VERIFY|SIGNATURE|SELF_SIGNED|DEPTH_ZERO|UNABLE_TO_VERIFY/i.test(`${code} ${msg}`);
+};
+
+function httpsGetText(url: string, timeoutMs: number, headers: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request(
+      {
+        host: u.hostname,
+        path: `${u.pathname}${u.search}`,
+        method: "GET",
+        port: 443,
+        rejectUnauthorized: false,
+        headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () =>
+          resolve(decodeBody(Buffer.concat(chunks), (res.headers["content-encoding"] || "").toLowerCase()))
+        );
+      }
+    );
+    req.setTimeout(timeoutMs, () => req.destroy(new Error("timeout")));
+    req.once("error", reject);
+    req.end();
+  });
 }
 
 /** Человекочитаемое описание сетевой ошибки */
@@ -122,6 +165,24 @@ export async function getJson<T>(
     } catch (e) {
       lastErr = e;
       if (e instanceof BookError) throw e;
+
+      // сертификат не принят — пробуем без проверки (перехват антивирусом)
+      if (INSECURE_ALLOWED && isCertError(e)) {
+        try {
+          const text = await httpsGetText(url, timeoutMs, browserHeaders(url, headers));
+          if (!insecureWarned) {
+            insecureWarned = true;
+            console.warn(
+              "[books] ВНИМАНИЕ: сертификат конторы не прошёл проверку — соединение выполнено без проверки. " +
+                "Похоже, HTTPS перехватывает антивирус или прокси. Отключить обход: BOOKS_INSECURE_FALLBACK=0"
+            );
+          }
+          return JSON.parse(text) as T;
+        } catch {
+          /* ниже бросим обычную ошибку */
+        }
+      }
+
       const retryable = !/abort/i.test(String((e as any)?.name || ""));
       if (retryable && attempt < retries) {
         await new Promise((r) => setTimeout(r, 250));

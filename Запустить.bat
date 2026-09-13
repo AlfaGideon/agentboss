@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+REM Node 22+ так доверяет системному хранилищу корневых сертификатов Windows,
+REM а в нём как раз лежат сертификаты антивирусов, перехватывающих HTTPS.
+set "NODE_USE_SYSTEM_CA=1"
 title Ставка PRO - анализ линий букмекеров
 cd /d "%~dp0"
 cls
