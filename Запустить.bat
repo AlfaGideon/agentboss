@@ -53,6 +53,31 @@ exit /b
 for /f "delims=" %%v in ('node -v 2^>nul') do set "NODEV=%%v"
 echo   [1/4] Node.js !NODEV! - готов
 
+echo.
+echo   ------------------------------------------
+echo    ВЫБЕРИТЕ РЕЖИМ ЗАПУСКА:
+echo.
+echo      1 - Обычный:    сборка и быстрый старт
+echo      2 - Разработка: npm install ^&^& npm run dev
+echo                      (правки в коде видны сразу)
+echo   ------------------------------------------
+echo   Через 10 секунд выберу обычный режим сам.
+echo.
+choice /c 12 /n /d 1 /t 10 2>nul
+set "MODE=1"
+if "!ERRORLEVEL!"=="2" set "MODE=2"
+if "!MODE!"=="2" (
+  echo   Выбрано: РЕЖИМ РАЗРАБОТКИ (npm run dev^)
+  echo.
+  echo   Страницы собираются на лету, правки в
+  echo   коде применятся сразу после сохранения.
+  echo   Первая загрузка страницы - медленнее.
+) else (
+  echo   Выбрано: обычный режим.
+)
+echo.
+if "!MODE!"=="2" goto DEV_INSTALL
+
 REM ============ 2. Компоненты ============
 if exist "node_modules\next\package.json" (
   echo   [2/4] Компоненты - на месте
@@ -88,6 +113,8 @@ for %%p in (3000 3001 3002 3003 3010 4000) do (
 )
 if not defined PORT set "PORT=3000"
 
+if "!MODE!"=="2" goto DEV_START
+
 echo   [4/4] Запускаю. Браузер откроется сам.
 echo.
 echo   ==========================================
@@ -103,6 +130,41 @@ start "" /b powershell -NoProfile -WindowStyle Hidden -Command ^
   "$p=!PORT!; for($i=0;$i -lt 120;$i++){ try{ $c=New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1',$p); $c.Close(); Start-Process ('http://localhost:'+$p); break } catch { Start-Sleep -Milliseconds 500 } }"
 
 call npx next start -H 127.0.0.1 -p !PORT!
+goto END
+
+REM ============ Режим разработки: npm install ============
+:DEV_INSTALL
+echo   [2/4] Обновляю компоненты (npm install^)...
+echo         Если всё уже стоит - займёт пару секунд.
+echo.
+call npm install --no-audit --no-fund --loglevel=error
+if errorlevel 1 goto ERR_NPM
+echo.
+echo   [3/4] Сборка не нужна: dev-сервер делает её сам.
+goto PORT
+
+REM ============ Режим разработки: npm run dev ============
+:DEV_START
+echo   [4/4] Запуск: npm install ^&^& npm run dev
+echo.
+echo   ==========================================
+echo    Адрес: http://localhost:!PORT!
+echo.
+echo    Это режим разработки. Он медленнее обычного,
+echo    зато сразу видны правки в коде и полные
+echo    ошибки в консоли - удобно, если конторы
+echo    не отвечают и нужно смотреть причину.
+echo   ==========================================
+echo.
+
+start "" /b powershell -NoProfile -WindowStyle Hidden -Command ^
+  "$p=!PORT!; for($i=0;$i -lt 120;$i++){ try{ $c=New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1',$p); $c.Close(); Start-Process ('http://localhost:'+$p); break } catch { Start-Sleep -Milliseconds 500 } }"
+
+if "!PORT!"=="3000" (
+  call npm run dev
+) else (
+  call npx next dev -H 127.0.0.1 -p !PORT!
+)
 goto END
 
 :ERR_NPM
